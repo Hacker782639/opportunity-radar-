@@ -1,0 +1,455 @@
+"use client";
+
+import { useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BriefcaseBusiness,
+  Check,
+  Code2,
+  GraduationCap,
+  Laptop,
+  Loader2,
+  MapPin,
+  Sparkles,
+  Trophy,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+
+const steps = [
+  "Experience",
+  "Skills",
+  "Preferences",
+  "Interests",
+];
+
+const experiences = ["Beginner", "Junior", "Mid-level", "Senior"];
+
+const skills = [
+  "JavaScript",
+  "TypeScript",
+  "React",
+  "Next.js",
+  "HTML",
+  "CSS",
+  "Python",
+  "Node.js",
+  "Git",
+  "UI/UX",
+];
+
+const roles = [
+  "Frontend Developer",
+  "Software Engineer",
+  "Full Stack Developer",
+  "UI/UX Designer",
+  "Mobile Developer",
+  "Data Analyst",
+];
+
+const opportunityTypes = [
+  { label: "Jobs", icon: BriefcaseBusiness },
+  { label: "Scholarships", icon: GraduationCap },
+  { label: "Fellowships", icon: Trophy },
+  { label: "Hackathons", icon: Code2 },
+];
+
+export default function OnboardingPage() {
+  const router = useRouter();
+  const supabase = createClient();
+
+  const [step, setStep] = useState(0);
+  const [experience, setExperience] = useState("Beginner");
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([
+    "JavaScript",
+    "HTML",
+    "CSS",
+  ]);
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([
+    "Frontend Developer",
+  ]);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(["Jobs"]);
+  const [workPreference, setWorkPreference] = useState("Remote");
+  const [location, setLocation] = useState("Nigeria");
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const toggleValue = (
+    value: string,
+    setter: React.Dispatch<React.SetStateAction<string[]>>
+  ) => {
+    setter((current) =>
+      current.includes(value)
+        ? current.filter((item) => item !== value)
+        : [...current, value]
+    );
+  };
+
+  const nextStep = () => {
+    setStep((current) => Math.min(current + 1, steps.length - 1));
+  };
+
+  const previousStep = () => {
+    setStep((current) => Math.max(current - 1, 0));
+  };
+
+  const finishSetup = async () => {
+    if (saving) return;
+
+    setError("");
+    setSaving(true);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .upsert({
+        id: user.id,
+        full_name:
+          user.user_metadata?.full_name ||
+          user.email?.split("@")[0] ||
+          "User",
+        location: location.trim() || "Nigeria",
+        experience,
+        skills: selectedSkills,
+        preferred_roles: selectedRoles,
+        opportunity_types: selectedTypes,
+        work_preference: workPreference,
+        onboarding_completed: true,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (profileError) {
+      console.error("Profile save error:", profileError);
+      setError("We couldn't save your profile. Please try again.");
+      setSaving(false);
+      return;
+    }
+
+    await supabase.auth.updateUser({
+      data: {
+        onboarding_completed: true,
+      },
+    });
+
+    router.push("/dashboard");
+    router.refresh();
+  };
+
+  return (
+    <main className="min-h-screen bg-[#fafaf8] text-neutral-950 dark:bg-[#111110] dark:text-white">
+      <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-4 py-6 sm:px-6 lg:py-10">
+
+        <header className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-950 text-white dark:bg-white dark:text-neutral-950">
+              <Sparkles className="h-4 w-4" />
+            </div>
+
+            <span className="text-sm font-bold tracking-tight">
+              Opportunity Radar
+            </span>
+          </div>
+
+          <span className="text-xs text-neutral-400">
+            {step + 1} of {steps.length}
+          </span>
+        </header>
+
+        <div className="mt-8 h-1 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+          <div
+            className="h-full rounded-full bg-violet-600 transition-all duration-300"
+            style={{
+              width: `${((step + 1) / steps.length) * 100}%`,
+            }}
+          />
+        </div>
+
+        <section className="mt-10 flex-1">
+          {step === 0 && (
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-400">
+                Step 01
+              </p>
+
+              <h1 className="mt-3 text-3xl font-bold tracking-tight">
+                Where are you in your journey?
+              </h1>
+
+              <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
+                This helps Radar prioritize opportunities appropriate for
+                your current experience.
+              </p>
+
+              <div className="mt-8 grid gap-2">
+                {experiences.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setExperience(item)}
+                    className={`flex items-center justify-between rounded-xl border p-4 text-left transition ${
+                      experience === item
+                        ? "border-violet-300 bg-violet-50/70 dark:border-violet-500/30 dark:bg-violet-500/10"
+                        : "border-neutral-200 bg-white hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900"
+                    }`}
+                  >
+                    <span className="text-sm font-semibold">{item}</span>
+
+                    {experience === item && (
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-white">
+                        <Check className="h-3 w-3" />
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {step === 1 && (
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-400">
+                Step 02
+              </p>
+
+              <h1 className="mt-3 text-3xl font-bold tracking-tight">
+                What can you work with?
+              </h1>
+
+              <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
+                Select the skills Radar should use when finding opportunities.
+              </p>
+
+              <div className="mt-8 flex flex-wrap gap-2">
+                {skills.map((skill) => {
+                  const selected = selectedSkills.includes(skill);
+
+                  return (
+                    <button
+                      key={skill}
+                      type="button"
+                      onClick={() => toggleValue(skill, setSelectedSkills)}
+                      className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+                        selected
+                          ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-400"
+                          : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
+                      }`}
+                    >
+                      {selected && (
+                        <Check className="mr-1 inline h-3 w-3" />
+                      )}
+                      {skill}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-400">
+                Step 03
+              </p>
+
+              <h1 className="mt-3 text-3xl font-bold tracking-tight">
+                What opportunities fit you?
+              </h1>
+
+              <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
+                Choose your preferred roles and how you want to work.
+              </p>
+
+              <div className="mt-8">
+                <p className="mb-3 text-xs font-bold">Preferred roles</p>
+
+                <div className="flex flex-wrap gap-2">
+                  {roles.map((role) => {
+                    const selected = selectedRoles.includes(role);
+
+                    return (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => toggleValue(role, setSelectedRoles)}
+                        className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+                          selected
+                            ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-400"
+                            : "border-neutral-200 bg-white text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
+                        }`}
+                      >
+                        {selected && (
+                          <Check className="mr-1 inline h-3 w-3" />
+                        )}
+                        {role}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-8">
+                <p className="mb-3 text-xs font-bold">Opportunity types</p>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {opportunityTypes.map((type) => {
+                    const Icon = type.icon;
+                    const selected = selectedTypes.includes(type.label);
+
+                    return (
+                      <button
+                        key={type.label}
+                        type="button"
+                        onClick={() =>
+                          toggleValue(type.label, setSelectedTypes)
+                        }
+                        className={`flex items-center gap-3 rounded-xl border p-3.5 text-left transition ${
+                          selected
+                            ? "border-violet-300 bg-violet-50/70 dark:border-violet-500/30 dark:bg-violet-500/10"
+                            : "border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4 text-neutral-500" />
+                        <span className="text-xs font-semibold">
+                          {type.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-8">
+                <p className="mb-3 text-xs font-bold">Work preference</p>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {["Remote", "Hybrid", "On-site"].map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setWorkPreference(item)}
+                      className={`rounded-lg border px-3 py-3 text-xs font-semibold transition ${
+                        workPreference === item
+                          ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-400"
+                          : "border-neutral-200 bg-white text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
+                      }`}
+                    >
+                      <Laptop className="mx-auto mb-1 h-4 w-4" />
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-400">
+                Step 04
+              </p>
+
+              <h1 className="mt-3 text-3xl font-bold tracking-tight">
+                Where should Radar look?
+              </h1>
+
+              <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
+                Your location helps us prioritize relevant opportunities.
+              </p>
+
+              <div className="mt-8">
+                <label className="text-xs font-bold">
+                  Location
+                </label>
+
+                <div className="relative mt-2">
+                  <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+
+                  <input
+                    value={location}
+                    onChange={(event) => setLocation(event.target.value)}
+                    placeholder="Country or city"
+                    className="h-11 w-full rounded-lg border border-neutral-200 bg-white pl-10 pr-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-500/10 dark:border-neutral-800 dark:bg-neutral-900"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-8 rounded-xl border border-violet-100 bg-violet-50/60 p-5 dark:border-violet-500/20 dark:bg-violet-500/5">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                  <p className="text-sm font-bold">
+                    Your radar is almost ready
+                  </p>
+                </div>
+
+                <p className="mt-2 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+                  We'll use these preferences to prioritize opportunities
+                  that are more relevant to you. You can change everything
+                  later from your profile.
+                </p>
+              </div>
+
+              {error && (
+                <p className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-xs font-medium text-red-500">
+                  {error}
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+
+        <footer className="mt-10 flex items-center justify-between border-t border-neutral-200 pt-5 dark:border-neutral-800">
+          <button
+            type="button"
+            onClick={previousStep}
+            disabled={step === 0 || saving}
+            className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-neutral-500 transition hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-30 dark:hover:bg-neutral-900"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back
+          </button>
+
+          {step < steps.length - 1 ? (
+            <button
+              type="button"
+              onClick={nextStep}
+              disabled={saving}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-neutral-950 px-4 text-xs font-semibold text-white transition hover:bg-neutral-800 disabled:pointer-events-none disabled:opacity-50 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
+            >
+              Continue
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={finishSetup}
+              disabled={saving}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:pointer-events-none disabled:opacity-50"
+            >
+              {saving ? (
+                <>
+                  Saving
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                </>
+              ) : (
+                <>
+                  Finish setup
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </>
+              )}
+            </button>
+          )}
+        </footer>
+      </div>
+    </main>
+  );
+}

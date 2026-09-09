@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fafaf8;
+  --foreground: #171717;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --primary: #7c3aed;
+  --primary-hover: #6d28d9;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text-primary: #171717;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+}
+
+.dark {
+  --background: #09090b;
+  --foreground: #fafaf8;
+  --surface: #111113;
+  --surface-muted: #18181b;
+  --primary: #a78bfa;
+  --primary-hover: #c4b5fd;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --text-primary: #fafaf8;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  overflow-x: hidden;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: rgb(37 99 235 / 0.2);
+}
