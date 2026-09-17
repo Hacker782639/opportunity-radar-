@@ -26,8 +26,6 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
-  const [resending, setResending] = useState(false);
-  const [resendMessage, setResendMessage] = useState("");
 
   const passwordStrong = password.length >= 8;
   const canContinue =
@@ -68,30 +66,6 @@ export default function SignupPage() {
 
     router.push("/onboarding");
     router.refresh();
-  };
-
-  const handleResendVerification = async () => {
-    if (!email.trim() || resending) return;
-
-    setError("");
-    setResendMessage("");
-    setResending(true);
-
-    const { error: resendError } = await supabase.auth.resend({
-      type: "signup",
-      email: email.trim(),
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-
-    if (resendError) {
-      setError(resendError.message);
-    } else {
-      setResendMessage("A new verification email has been sent.");
-    }
-
-    setResending(false);
   };
 
   const handleGoogleLogin = async () => {
@@ -152,36 +126,19 @@ export default function SignupPage() {
               <div className="mt-7 flex items-start gap-3 rounded-2xl border border-black/10 bg-[#fafaf8] p-4 dark:border-white/10 dark:bg-[#111110]">
                 <Check className="mt-0.5 h-4 w-4 shrink-0" />
                 <p className="text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-                  Open the verification email and confirm your address. Once
-                  confirmed, you can sign in and continue to onboarding.
+                  After verification, return here and sign in. You’ll then
+                  continue to onboarding automatically.
                 </p>
               </div>
 
-              {resendMessage && (
-                <p className="mt-4 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  {resendMessage}
-                </p>
-              )}
-
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={handleResendVerification}
-                  disabled={resending}
-                  className="flex h-11 flex-1 items-center justify-center rounded-xl border border-black/10 bg-white text-sm font-semibold transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#181817] dark:hover:bg-[#20201f]"
-                >
-                  {resending ? "Sending..." : "Resend email"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => router.push("/login")}
-                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#111110] text-sm font-semibold text-white transition hover:opacity-90 dark:bg-white dark:text-[#111110]"
-                >
-                  Go to sign in
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => router.push("/login")}
+                className="mt-7 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#111110] text-sm font-semibold text-white transition hover:opacity-90 dark:bg-white dark:text-[#111110]"
+              >
+                Go to sign in
+                <ArrowRight className="h-4 w-4" />
+              </button>
             </div>
 
             <p className="mt-6 text-center text-xs text-neutral-400">
