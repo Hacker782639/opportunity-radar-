@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   ArrowUpRight,
@@ -14,68 +15,31 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/app-shell";
-import { OpportunityCard } from "@/components/opportunities/opportunity-card";
+import { DashboardOpportunityCard } from "@/components/opportunities/dashboard-opportunity-card";
 import { Card } from "@/components/ui/card";
+import { getAllJobs } from "@/lib/jobs/providers";
+import { getJobMatch, type MatchingProfile } from "@/lib/jobs/matching";
+import { calculateProfileStrength } from "@/lib/profile/strength";
+import type { Job } from "@/lib/jobs/types";
 
-const opportunities = [
-  {
-    title: "Frontend Engineer",
-    organization: "Vercel",
-    type: "Job" as const,
-    location: "Remote · Worldwide",
-    experience: "Beginner",
-    salary: "$90k–$130k",
-    matchScore: 96,
-    skills: ["React", "Next.js", "TypeScript", "Remote"],
-  },
-  {
-    title: "{userExperience} Software Engineer",
-    organization: "Andela",
-    type: "Job" as const,
-    location: "Remote · Africa",
-    experience: "Beginner",
-    salary: "$60k–$90k",
-    matchScore: 93,
-    skills: ["JavaScript", "Node.js", "Git"],
-  },
-  {
-    title: "{primaryRole}",
-    organization: "Wellfound",
-    type: "Job" as const,
-    location: "Remote · Worldwide",
-    experience: "Entry Level",
-    salary: "$55k–$85k",
-    matchScore: 91,
-    skills: ["React", "CSS", "JavaScript"],
-  },
-];
+function formatDaysLeft(deadline: string) {
+  const diff = new Date(deadline).getTime() - Date.now();
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
 
-const stats = [
-  {
-    label: "New matches",
-    value: "47",
-    detail: "+12 this week",
-    icon: Sparkles,
-  },
-  {
-    label: "Saved",
-    value: "12",
-    detail: "3 added today",
-    icon: Bookmark,
-  },
-  {
-    label: "Applications",
-    value: "7",
-    detail: "2 need attention",
-    icon: BriefcaseBusiness,
-  },
-  {
-    label: "Deadlines",
-    value: "3",
-    detail: "Next 7 days",
-    icon: CalendarDays,
-  },
-];
+  if (days < 0) return `${Math.abs(days)} days overdue`;
+  if (days === 0) return "Due today";
+  if (days === 1) return "1 day left";
+  return `${days} days left`;
+}
+
+function getDeadlineDot(deadline: string) {
+  const diff = new Date(deadline).getTime() - Date.now();
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+
+  if (days <= 3) return "bg-red-500";
+  if (days <= 7) return "bg-amber-500";
+  return "bg-neutral-300 dark:bg-neutral-600";
+}
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -84,7 +48,7 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: profile } = user
+  const { data: profile, error: profileError } = user
     ? await supabase
         .from("profiles")
         .select(
@@ -92,7 +56,11 @@ export default async function DashboardPage() {
         )
         .eq("id", user.id)
         .maybeSingle()
-    : { data: null };
+    : { data: null, error: null };
+
+  if (profileError) {
+    throw profileError;
+  }
 
   const displayName =
     profile?.full_name ||
@@ -100,19 +68,161 @@ export default async function DashboardPage() {
     user?.email?.split("@")[0] ||
     "there";
 
-  const primaryRole =
-    profile?.preferred_roles?.[0] || "{primaryRole}";
+  const matchingProfile: MatchingProfile = {
+    skills: profile?.skills ?? [],
+    preferred_roles: profile?.preferred_roles ?? [],
+    opportunity_types: profile?.opportunity_types ?? [],
+    experience: profile?.experience ?? null,
+    work_preference: profile?.work_preference ?? null,
+    location: profile?.location ?? null,
+  };
 
-  const userLocation = profile?.location || "{userLocation}";
+  const [
+    jobsResult,
+    savedResult,
+    applicationsResult,
+    deadlinesResult,
+  ] = await Promise.all([
+    getAllJobs(),
+    user
+      ? supabase
+          .from("saved_opportunities")
+          .select("opportunity_id", { count: "exact" })
+          .eq("user_id", user.id)
+      : Promise.resolve({
+          count: 0,
+          data: [] as { opportunity_id: string }[],
+          error: null,
+        }),
+    user
+      ? supabase
+          .from("applications")
+          .select("status")
+          .eq("user_id", user.id)
+      : Promise.resolve({ data: [], error: null }),
+    user
+      ? supabase
+          .from("applications")
+          .select("id, title, company, deadline, opportunity_id")
+          .eq("user_id", user.id)
+          .not("deadline", "is", null)
+          .neq("status", "Rejected")
+          .order("deadline", { ascending: true })
+          .limit(3)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
-  const userExperience =
-    profile?.experience || "Beginner";
+  if (
+    savedResult.error ||
+    applicationsResult.error ||
+    deadlinesResult.error
+  ) {
+    throw (
+      savedResult.error ??
+      applicationsResult.error ??
+      deadlinesResult.error
+    );
+  }
+
+  const jobs: Job[] = jobsResult.jobs;
+
+  const rankedJobs = jobs
+    .map((job) => ({
+      job,
+      match: getJobMatch(job, matchingProfile),
+    }))
+    .sort((a, b) => {
+      if (b.match.score !== a.match.score) {
+        return b.match.score - a.match.score;
+      }
+
+      const aDate = a.job.publishedAt
+        ? new Date(a.job.publishedAt).getTime()
+        : 0;
+      const bDate = b.job.publishedAt
+        ? new Date(b.job.publishedAt).getTime()
+        : 0;
+
+      return bDate - aDate;
+    });
+
+  const strongestMatches = rankedJobs.slice(0, 3);
+
+  const matchedJobs = rankedJobs.filter((item) => item.match.score >= 70);
+
+  const matchQuality =
+    strongestMatches.length > 0
+      ? Math.round(
+          strongestMatches.reduce(
+            (total, item) => total + item.match.score,
+            0,
+          ) / strongestMatches.length,
+        )
+      : 0;
+
+  const applications = applicationsResult.data ?? [];
+
+  const savedIds =
+    savedResult.data?.map((item) => item.opportunity_id) ?? [];
+  const savedCount = savedResult.count ?? savedIds.length;
+  const applicationCount = applications.length;
+
+  const appliedCount = applications.filter(
+    (application) => application.status === "Applied",
+  ).length;
+
+  const interviewCount = applications.filter(
+    (application) => application.status === "Interview",
+  ).length;
+
+  const offerCount = applications.filter(
+    (application) => application.status === "Offer",
+  ).length;
+
+  const deadlineItems = deadlinesResult.data ?? [];
+  const deadlineCount = deadlineItems.length;
+
+  const profileStrength = calculateProfileStrength({
+    full_name: profile?.full_name,
+    location: profile?.location,
+    experience: profile?.experience,
+    skills: profile?.skills,
+    preferred_roles: profile?.preferred_roles,
+    opportunity_types: profile?.opportunity_types,
+    work_preference: profile?.work_preference,
+  });
+
+  const stats = [
+    {
+      label: "New matches",
+      value: String(matchedJobs.length),
+      detail: `${jobs.length} scanned`,
+      icon: Sparkles,
+    },
+    {
+      label: "Saved",
+      value: String(savedCount),
+      detail: "Your opportunities",
+      icon: Bookmark,
+    },
+    {
+      label: "Applications",
+      value: String(applicationCount),
+      detail: `${interviewCount} in interview`,
+      icon: BriefcaseBusiness,
+    },
+    {
+      label: "Deadlines",
+      value: String(deadlineCount),
+      detail: "Upcoming",
+      icon: CalendarDays,
+    },
+  ];
 
   return (
     <AppShell>
       <main className="min-h-screen bg-[#fafaf8] text-neutral-950 dark:bg-[#111110] dark:text-white">
         <div className="mx-auto w-full max-w-[1380px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-
           {/* PAGE HEADER */}
           <section className="flex flex-col gap-5 border-b border-neutral-200 pb-6 dark:border-neutral-800 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -133,20 +243,19 @@ export default async function DashboardPage() {
               </p>
             </div>
 
-            <button
-              type="button"
+            <Link
+              href="/discover"
               className="inline-flex h-10 w-fit items-center gap-2 rounded-lg bg-neutral-950 px-4 text-sm font-semibold text-white transition hover:bg-neutral-800 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
             >
               <Search className="h-4 w-4" />
               Discover
-            </button>
+            </Link>
           </section>
 
           {/* RADAR STATUS */}
           <section className="mt-6">
             <Card className="overflow-hidden border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
               <div className="flex flex-col gap-6 p-5 sm:p-6 lg:flex-row lg:items-center lg:justify-between">
-                
                 <div className="flex items-start gap-4">
                   <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white dark:bg-white dark:text-neutral-950">
                     <Target className="h-5 w-5" />
@@ -165,29 +274,33 @@ export default async function DashboardPage() {
                     </div>
 
                     <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-                      Scanning opportunities against your current profile.
+                      Scanning live opportunities against your current profile.
                     </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 divide-x divide-neutral-200 dark:divide-neutral-800">
                   <div className="px-4 first:pl-0">
-                    <p className="text-lg font-bold">1,284</p>
+                    <p className="text-lg font-bold">
+                      {jobs.length.toLocaleString()}
+                    </p>
                     <p className="mt-0.5 whitespace-nowrap text-[10px] text-neutral-400">
                       scanned
                     </p>
                   </div>
 
                   <div className="px-4">
-                    <p className="text-lg font-bold">47</p>
+                    <p className="text-lg font-bold">
+                      {matchedJobs.length}
+                    </p>
                     <p className="mt-0.5 whitespace-nowrap text-[10px] text-neutral-400">
                       matches
                     </p>
                   </div>
 
                   <div className="px-4 last:pr-0">
-                    <p className="text-lg font-bold text-violet-600 dark:text-violet-400">
-                      86%
+                    <p className="text-lg font-bold">
+                      {matchQuality}%
                     </p>
                     <p className="mt-0.5 whitespace-nowrap text-[10px] text-neutral-400">
                       match quality
@@ -195,13 +308,13 @@ export default async function DashboardPage() {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 hover:text-violet-600 dark:hover:text-violet-400"
+                <Link
+                  href="/profile"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 hover:text-neutral-950 dark:hover:text-white"
                 >
                   Tune radar
                   <ArrowUpRight className="h-3.5 w-3.5" />
-                </button>
+                </Link>
               </div>
             </Card>
           </section>
@@ -240,13 +353,12 @@ export default async function DashboardPage() {
 
           {/* MAIN GRID */}
           <section className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
-
             {/* MATCHES */}
             <div className="min-w-0">
               <div className="mb-4 flex items-end justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <Flame className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                    <Flame className="h-4 w-4 text-neutral-950 dark:text-white" />
 
                     <h2 className="text-base font-bold">
                       Strongest matches
@@ -258,28 +370,40 @@ export default async function DashboardPage() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
+                <Link
+                  href="/discover"
                   className="hidden items-center gap-1 text-xs font-semibold text-neutral-500 hover:text-neutral-950 sm:flex dark:hover:text-white"
                 >
                   View all
                   <ArrowUpRight className="h-3.5 w-3.5" />
-                </button>
+                </Link>
               </div>
 
               <div className="space-y-3">
-                {opportunities.map((opportunity) => (
-                  <OpportunityCard
-                    key={opportunity.title}
-                    {...opportunity}
+                {strongestMatches.map(({ job, match }) => (
+                  <DashboardOpportunityCard
+                    key={job.id}
+                    job={job}
+                    matchScore={match.score}
+                    saved={savedIds.includes(job.id)}
                   />
                 ))}
+
+                {strongestMatches.length === 0 && (
+                  <Card className="border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900">
+                    <p className="text-sm font-semibold">
+                      No opportunities available right now.
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                      Try Discover again in a moment.
+                    </p>
+                  </Card>
+                )}
               </div>
             </div>
 
             {/* RIGHT RAIL */}
             <aside className="space-y-4">
-
               {/* PROFILE */}
               <Card className="border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
                 <div className="flex items-center justify-between">
@@ -293,25 +417,30 @@ export default async function DashboardPage() {
                     </h3>
                   </div>
 
-                  <span className="text-lg font-bold text-violet-600 dark:text-violet-400">
-                    72%
+                  <span className="text-lg font-bold">
+                    {profileStrength}%
                   </span>
                 </div>
 
                 <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-                  <div className="h-full w-[72%] rounded-full bg-violet-600" />
+                  <div
+                    className="h-full rounded-full bg-neutral-950 dark:bg-white"
+                    style={{ width: `${profileStrength}%` }}
+                  />
                 </div>
 
                 <p className="mt-4 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-                  Add projects, experience and skills to improve your matches.
+                  {displayName
+                    ? `${displayName.split(" ")[0]}, complete your profile to improve your matches.`
+                    : "Complete your profile to improve your matches."}
                 </p>
 
-                <button
-                  type="button"
-                  className="mt-4 text-xs font-bold text-violet-600 hover:text-violet-700 dark:text-violet-400"
+                <Link
+                  href="/profile"
+                  className="mt-4 inline-flex text-xs font-bold text-neutral-950 hover:text-neutral-600 dark:text-white dark:hover:text-neutral-300"
                 >
                   Improve profile →
-                </button>
+                </Link>
               </Card>
 
               {/* DEADLINES */}
@@ -326,60 +455,51 @@ export default async function DashboardPage() {
                   </div>
 
                   <span className="text-[10px] font-medium text-neutral-400">
-                    3 deadlines
+                    {deadlineCount}{" "}
+                    {deadlineCount === 1 ? "deadline" : "deadlines"}
                   </span>
                 </div>
 
                 <div className="mt-4 space-y-3">
-                  <div className="flex items-start gap-3">
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
+                  {deadlineItems.map((deadline) => (
+                    <Link
+                      key={deadline.id}
+                      href={`/opportunities/${encodeURIComponent(
+                        deadline.opportunity_id,
+                      )}`}
+                      className="flex items-start gap-3"
+                    >
+                      <span
+                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${getDeadlineDot(
+                          deadline.deadline,
+                        )}`}
+                      />
 
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-semibold">
-                        Developer Fellowship
-                      </p>
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold">
+                          {deadline.title}
+                        </p>
 
-                      <p className="mt-1 text-[10px] text-red-500">
-                        2 days left
-                      </p>
-                    </div>
-                  </div>
+                        <p className="mt-1 text-[10px] text-neutral-400">
+                          {formatDaysLeft(deadline.deadline)}
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
 
-                  <div className="flex items-start gap-3">
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-semibold">
-                        Open Source Program
-                      </p>
-
-                      <p className="mt-1 text-[10px] text-neutral-400">
-                        6 days left
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3">
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300 dark:bg-neutral-600" />
-
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-semibold">
-                        Technology Grant
-                      </p>
-
-                      <p className="mt-1 text-[10px] text-neutral-400">
-                        11 days left
-                      </p>
-                    </div>
-                  </div>
+                  {deadlineItems.length === 0 && (
+                    <p className="py-2 text-xs text-neutral-400">
+                      No upcoming deadlines.
+                    </p>
+                  )}
                 </div>
 
-                <button
-                  type="button"
-                  className="mt-5 text-xs font-semibold text-neutral-500 hover:text-neutral-950 dark:hover:text-white"
+                <Link
+                  href="/deadlines"
+                  className="mt-5 inline-flex text-xs font-semibold text-neutral-500 hover:text-neutral-950 dark:hover:text-white"
                 >
                   View deadlines →
-                </button>
+                </Link>
               </Card>
 
               {/* APPLICATIONS */}
@@ -400,41 +520,41 @@ export default async function DashboardPage() {
 
                 <div className="mt-5 grid grid-cols-4 gap-1">
                   <div className="text-center">
-                    <p className="text-base font-bold">12</p>
+                    <p className="text-base font-bold">{savedCount}</p>
                     <p className="mt-1 text-[9px] text-neutral-400">
                       Saved
                     </p>
                   </div>
 
                   <div className="text-center">
-                    <p className="text-base font-bold">7</p>
+                    <p className="text-base font-bold">{appliedCount}</p>
                     <p className="mt-1 text-[9px] text-neutral-400">
                       Applied
                     </p>
                   </div>
 
                   <div className="text-center">
-                    <p className="text-base font-bold">2</p>
+                    <p className="text-base font-bold">{interviewCount}</p>
                     <p className="mt-1 text-[9px] text-neutral-400">
                       Interview
                     </p>
                   </div>
 
                   <div className="text-center">
-                    <p className="text-base font-bold">0</p>
+                    <p className="text-base font-bold">{offerCount}</p>
                     <p className="mt-1 text-[9px] text-neutral-400">
                       Offer
                     </p>
                   </div>
                 </div>
 
-                <button
-                  type="button"
+                <Link
+                  href="/applications"
                   className="mt-5 flex w-full items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-xs font-semibold text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-950 dark:border-neutral-800 dark:text-neutral-400 dark:hover:border-neutral-700 dark:hover:text-white"
                 >
                   Open tracker
                   <ArrowUpRight className="h-3.5 w-3.5" />
-                </button>
+              </Link>
               </Card>
             </aside>
           </section>

@@ -1,4 +1,5 @@
 import type { Job } from "../types";
+import { extractDeadline, fetchWithTimeout, mapValidJobs } from "./utils";
 
 type RemoteLandersJob = {
   slug?: string;
@@ -13,6 +14,7 @@ type RemoteLandersJob = {
   postedDate?: string | null;
   url?: string;
   applyUrl?: string;
+  description?: string;
 };
 
 type RemoteLandersResponse = {
@@ -22,6 +24,9 @@ type RemoteLandersResponse = {
   count?: number;
   jobs?: RemoteLandersJob[];
 };
+
+const PAGE_SIZE = 100;
+const PAGES = 5;
 
 function extractSkills(text: string): string[] {
   const known = [
@@ -57,18 +62,15 @@ function extractSkills(text: string): string[] {
   return known.filter((skill) => lower.includes(skill));
 }
 
-export async function getRemoteLandersJobs(
-  search = "",
-): Promise<Job[]> {
+async function fetchRemoteLandersPage(
+  page: number,
+): Promise<RemoteLandersJob[]> {
   const url = new URL("https://remotelanders.com/api/jobs");
 
-  url.searchParams.set("limit", "100");
+  url.searchParams.set("limit", String(PAGE_SIZE));
+  url.searchParams.set("page", String(page));
 
-  if (search.trim()) {
-    url.searchParams.set("category", "Engineering");
-  }
-
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     headers: {
       Accept: "application/json",
     },
@@ -82,48 +84,76 @@ export async function getRemoteLandersJobs(
   }
 
   const data = (await response.json()) as RemoteLandersResponse;
+
+  return data.jobs ?? [];
+}
+
+export async function getRemoteLandersJobs(
+  search = "",
+): Promise<Job[]> {
+  const pageNumbers = Array.from(
+    { length: PAGES },
+    (_, index) => index + 1,
+  );
+
+  const pages = await Promise.all(
+    pageNumbers.map(async (page) => {
+      try {
+        return await fetchRemoteLandersPage(page);
+      } catch (error) {
+        console.error(
+          `[Opportunity Radar] Remote Landers page ${page} failed:`,
+          error,
+        );
+
+        return [] as RemoteLandersJob[];
+      }
+    }),
+  );
+
+  if (pages.every((items) => items.length === 0)) {
+    throw new Error("Remote Landers returned no jobs.");
+  }
+
   const query = search.trim().toLowerCase();
 
-  return (data.jobs ?? [])
-    .filter((job) => job.title && (job.applyUrl || job.url))
-    .filter((job) => {
-      if (!query) return true;
+  return mapValidJobs(pages.flat(), (job) => {
+    const url = job.applyUrl || job.url;
 
-      const text = [
-        job.title,
-        job.company,
-        job.category,
-        job.location,
-        job.level,
-        ...(job.subtags ?? []),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+    if (!job.title || !job.company || !url) return null;
 
-      return text.includes(query);
-    })
-    .map((job) => {
-      const fullText = [
-        job.title,
-        job.category,
-        ...(job.subtags ?? []),
-      ]
-        .filter(Boolean)
-        .join(" ");
+    const fullText = [
+      job.title,
+      job.company,
+      job.category,
+      job.location,
+      job.level,
+      ...(job.subtags ?? []),
+      job.description,
+    ]
+      .filter(Boolean)
+      .join(" ");
 
-      return {
-        id: `remotelanders-${job.slug ?? job.title}`,
-        title: job.title!,
-        company: job.company || "Remote Landers",
-        location: job.location || "Worldwide",
-        remote: true,
-        experience: job.level || "Open",
-        salary: job.salary || undefined,
-        url: job.applyUrl || job.url!,
-        source: "Remote Landers",
-        publishedAt: job.postedDate || undefined,
-        skills: extractSkills(fullText),
-      };
-    });
+    if (query) {
+      const text = fullText.toLowerCase();
+
+      if (!text.includes(query)) return null;
+    }
+
+    return {
+      id: `remotelanders-${job.slug ?? job.url}`,
+      title: job.title,
+      company: job.company,
+      category: job.category || job.type || undefined,
+      location: job.location || "Worldwide",
+      remote: true,
+      experience: job.level || "Open",
+      salary: job.salary || undefined,
+      url,
+      source: "Remote Landers",
+      publishedAt: job.postedDate || undefined,
+      deadline: extractDeadline(job.description),
+      skills: extractSkills(fullText),
+    };
+  });
 }

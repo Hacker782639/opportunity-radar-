@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   Bookmark,
@@ -31,14 +31,18 @@ type SavedOpportunity = {
 };
 
 export default function SavedPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [items, setItems] = useState<SavedOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<number | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const loadSaved = async () => {
+      setLoading(true);
+      setError("");
+
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -58,6 +62,8 @@ export default function SavedPage() {
 
       if (error) {
         console.error("Saved opportunities error:", error);
+        setError("Unable to load your saved opportunities.");
+        setItems([]);
       } else {
         setItems(data ?? []);
       }
@@ -66,7 +72,7 @@ export default function SavedPage() {
     };
 
     loadSaved();
-  }, []);
+  }, [supabase]);
 
   const removeSaved = async (item: SavedOpportunity) => {
     if (removing) return;
@@ -88,7 +94,11 @@ export default function SavedPage() {
       .eq("id", item.id)
       .eq("user_id", user.id);
 
-    if (!error) {
+    if (error) {
+      console.error("Remove saved opportunity error:", error);
+      setError("Unable to remove this saved opportunity.");
+    } else {
+      setError("");
       setItems((current) =>
         current.filter((saved) => saved.id !== item.id),
       );
@@ -169,7 +179,19 @@ export default function SavedPage() {
             </div>
           )}
 
-          {!loading && items.length === 0 && (
+          {!loading && error && (
+            <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-8 text-center dark:border-neutral-800 dark:bg-neutral-900">
+              <p className="text-sm font-semibold">
+                Something went wrong
+              </p>
+
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                {error}
+              </p>
+            </section>
+          )}
+
+          {!loading && !error && items.length === 0 && (
             <section className="mt-6 rounded-xl border border-dashed border-neutral-300 bg-white p-10 text-center dark:border-neutral-800 dark:bg-neutral-900">
               <Bookmark className="mx-auto h-6 w-6 text-neutral-400" />
 
@@ -191,7 +213,7 @@ export default function SavedPage() {
             </section>
           )}
 
-          {!loading && items.length > 0 && (
+          {!loading && !error && items.length > 0 && (
             <section className="mt-6 space-y-3">
               {items.map((item) => (
                 <article
@@ -234,7 +256,7 @@ export default function SavedPage() {
                           </h2>
 
                           <p className="mt-1 text-xs font-medium text-neutral-500">
-                            {item.company || "Company"}
+                            {item.company || "Company not listed"}
                           </p>
                         </div>
 
@@ -256,11 +278,11 @@ export default function SavedPage() {
                       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-neutral-400">
                         <span className="inline-flex items-center gap-1">
                           <MapPin className="h-3 w-3" />
-                          {item.location || "Worldwide"}
+                          {item.location || "Location not listed"}
                         </span>
 
                         <span>
-                          {item.experience || "All levels"}
+                          {item.experience || "Experience not listed"}
                         </span>
 
                         {item.salary && (

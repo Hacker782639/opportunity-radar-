@@ -1,19 +1,21 @@
 import type { Job } from "../types";
+import { extractDeadline, fetchWithTimeout, mapValidJobs } from "./utils";
 
 type JobicyJob = {
-  id?: string;
+  id?: number | string;
   jobTitle?: string;
   companyName?: string;
   jobDescription?: string;
-  jobIndustry?: string;
-  jobType?: string;
+  jobIndustry?: string[];
+  jobType?: string[];
   jobGeo?: string;
   jobLevel?: string;
   pubDate?: string;
   url?: string;
-  annualSalaryMin?: number;
-  annualSalaryMax?: number;
+  salaryMin?: number;
+  salaryMax?: number;
   salaryCurrency?: string;
+  salaryPeriod?: string;
   jobSlug?: string;
 };
 
@@ -58,13 +60,13 @@ function extractSkills(text: string): string[] {
 export async function getJobicyJobs(search = ""): Promise<Job[]> {
   const url = new URL("https://jobicy.com/api/v2/remote-jobs");
 
-  url.searchParams.set("count", "200");
+  url.searchParams.set("count", "100");
 
   if (search.trim()) {
     url.searchParams.set("tag", search.trim());
   }
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     headers: {
       Accept: "application/json",
     },
@@ -78,61 +80,65 @@ export async function getJobicyJobs(search = ""): Promise<Job[]> {
   }
 
   const data = (await response.json()) as JobicyResponse;
-
   const query = search.trim().toLowerCase();
 
-  return (data.jobs ?? [])
-    .filter((job) => job.jobTitle && job.url)
-    .filter((job) => {
-      if (!query) return true;
+  return mapValidJobs(data.jobs ?? [], (job) => {
+    if (!job.jobTitle || !job.url || !job.companyName) return null;
 
-      const text = [
-        job.jobTitle,
-        job.companyName,
-        job.jobDescription,
-        job.jobIndustry,
-        job.jobLevel,
-        job.jobGeo,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+    const industry = Array.isArray(job.jobIndustry)
+      ? job.jobIndustry.filter(Boolean).join(", ")
+      : undefined;
+    const type = Array.isArray(job.jobType)
+      ? job.jobType.filter(Boolean).join(", ")
+      : undefined;
 
-      return text.includes(query);
-    })
-    .map((job) => {
-      const fullText = [
-        job.jobTitle,
-        job.jobDescription,
-        job.jobIndustry,
-      ]
-        .filter(Boolean)
-        .join(" ");
+    const fullText = [
+      job.jobTitle,
+      job.companyName,
+      job.jobDescription,
+      industry,
+      type,
+      job.jobGeo,
+    ]
+      .filter(Boolean)
+      .join(" ");
 
-      let salary: string | undefined;
+    if (query) {
+      const text = fullText.toLowerCase();
 
-      if (job.annualSalaryMin || job.annualSalaryMax) {
-        const currency = job.salaryCurrency || "USD";
+      if (!text.includes(query)) return null;
+    }
 
-        if (job.annualSalaryMin && job.annualSalaryMax) {
-          salary = `${currency} ${job.annualSalaryMin.toLocaleString()}–${job.annualSalaryMax.toLocaleString()}`;
-        } else if (job.annualSalaryMin) {
-          salary = `${currency} ${job.annualSalaryMin.toLocaleString()}+`;
-        }
+    let salary: string | undefined;
+
+    if (job.salaryMin || job.salaryMax) {
+      const currency = job.salaryCurrency || "USD";
+      const period = job.salaryPeriod || "yearly";
+
+      if (job.salaryMin && job.salaryMax) {
+        salary = `${currency} ${job.salaryMin.toLocaleString()}–${job.salaryMax.toLocaleString()} / ${period}`;
+      } else if (job.salaryMin) {
+        salary = `${currency} ${job.salaryMin.toLocaleString()}+ / ${period}`;
+      } else if (job.salaryMax) {
+        salary = `${currency} up to ${job.salaryMax.toLocaleString()} / ${period}`;
       }
+    }
 
-      return {
-        id: `jobicy-${job.id ?? job.jobSlug ?? job.jobTitle}`,
-        title: job.jobTitle!,
-        company: job.companyName || "Jobicy",
-        location: job.jobGeo || "Worldwide",
-        remote: true,
-        experience: job.jobLevel || "Open",
-        salary,
-        url: job.url!,
-        source: "Jobicy",
-        publishedAt: job.pubDate,
-        skills: extractSkills(fullText),
-      };
-    });
+    return {
+      id: `jobicy-${job.id ?? job.jobSlug ?? job.url}`,
+      title: job.jobTitle,
+      company: job.companyName,
+      category: industry || type || undefined,
+      location: job.jobGeo || "Worldwide",
+      remote: true,
+      experience: job.jobLevel || "Open",
+      salary,
+      url: job.url,
+      source: "Jobicy",
+      publishedAt: job.pubDate,
+      deadline: extractDeadline(job.jobDescription),
+      skills: extractSkills(fullText),
+      description: job.jobDescription || undefined,
+    };
+  });
 }

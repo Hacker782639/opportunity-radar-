@@ -1,51 +1,158 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Check,
   FileText,
+  Loader2,
   Sparkles,
   Upload,
   X,
 } from "lucide-react";
 
+import { createClient } from "@/lib/supabase/client";
+import {
+  formatCvUploadedAt,
+  loadStoredCv,
+  removeCv,
+  uploadCv,
+  validateCvFile,
+  type StoredCV,
+} from "@/lib/cv/client";
+
+
 export default function CVPage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const supabase = useMemo(() => createClient(), []);
 
-  const [file, setFile] = useState<File | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [storedCv, setStoredCv] = useState<StoredCV | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [uploaded, setUploaded] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleFile = (selectedFile?: File) => {
-    if (!selectedFile) return;
+  const showFileCard = Boolean(selectedFile || storedCv);
+  const displayFileName =
+    selectedFile?.name ?? storedCv?.fileName ?? "Uploaded CV";
+  const displayFileDetails = selectedFile
+    ? uploading
+      ? "Uploading..."
+      : `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB · Ready for review`
+    : storedCv
+      ? formatCvUploadedAt(storedCv.uploadedAt)
+      : "";
 
-    const validType =
-      selectedFile.type === "application/pdf" ||
-      selectedFile.type ===
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
-    if (!validType) return;
-
-    setFile(selectedFile);
-    setUploaded(true);
-  };
-
-  const removeFile = () => {
-    setFile(null);
-    setUploaded(false);
-
+  const resetFileInput = () => {
     if (inputRef.current) {
       inputRef.current.value = "";
     }
   };
 
+  useEffect(() => {
+    let active = true;
+
+    const loadExistingCv = async () => {
+      try {
+        const cv = await loadStoredCv(supabase);
+
+        if (active) {
+          setStoredCv(cv);
+        }
+      } catch (loadError) {
+        if (!active) return;
+
+        console.error("CV metadata lookup error:", loadError);
+        setError("Please sign in to manage your CV.");
+      }
+    };
+
+    loadExistingCv();
+
+    return () => {
+      active = false;
+    };
+  }, [supabase]);
+
+  const handleFile = async (file?: File) => {
+    if (!file || uploading || removing) return;
+
+    setError("");
+
+    const validationError = validateCvFile(file);
+
+    if (validationError) {
+      setError(validationError);
+      resetFileInput();
+      return;
+    }
+
+    setSelectedFile(file);
+    setUploading(true);
+
+    try {
+      const { cv, warning } = await uploadCv(supabase, file);
+
+      setStoredCv(cv);
+      setError(warning ?? "");
+    } catch (uploadError) {
+      console.error("CV upload error:", uploadError);
+      setError("Unable to upload your CV. Please try again.");
+      setSelectedFile(null);
+      resetFileInput();
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeFile = async () => {
+    if (uploading || removing) return;
+
+    if (selectedFile && !storedCv) {
+      setSelectedFile(null);
+      setError("");
+      resetFileInput();
+      return;
+    }
+
+    if (!storedCv) {
+      resetFileInput();
+      return;
+    }
+
+    setRemoving(true);
+
+    try {
+      const warning = await removeCv(supabase, storedCv);
+
+      setError(warning ?? "");
+
+      setSelectedFile(null);
+      setStoredCv(null);
+      resetFileInput();
+    } catch (removeError) {
+      console.error("CV removal error:", removeError);
+      setError("Unable to remove your CV. Please try again.");
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const skip = () => {
+    router.push("/dashboard");
+  };
+
+  const continueToReview = () => {
+    if (uploading || !storedCv) return;
+    router.push("/cv/review");
+  };
+
   return (
     <main className="min-h-screen bg-[#fafaf8] text-neutral-950 dark:bg-[#111110] dark:text-white">
       <div className="mx-auto flex min-h-screen w-full max-w-[850px] flex-col px-4 py-6 sm:px-6 lg:py-10">
-
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-950 text-white dark:bg-white dark:text-neutral-950">
@@ -57,9 +164,7 @@ export default function CVPage() {
             </span>
           </div>
 
-          <span className="text-xs text-neutral-400">
-            CV profile
-          </span>
+          <span className="text-xs text-neutral-400">CV profile</span>
         </header>
 
         <section className="mt-10">
@@ -72,13 +177,13 @@ export default function CVPage() {
           </h1>
 
           <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-            Let Radar extract useful information from your CV to improve
-            opportunity matching. You stay in control of every change.
+            Let Radar use your CV to improve opportunity matching. You stay
+            in control of every change.
           </p>
         </section>
 
         <section className="mt-8">
-          {!file ? (
+          {!showFileCard ? (
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
@@ -90,7 +195,7 @@ export default function CVPage() {
               onDrop={(event) => {
                 event.preventDefault();
                 setDragging(false);
-                handleFile(event.dataTransfer.files[0]);
+                void handleFile(event.dataTransfer.files[0]);
               }}
               className={`flex min-h-[280px] w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 text-center transition ${
                 dragging
@@ -127,33 +232,55 @@ export default function CVPage() {
 
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold">
-                    {file.name}
+                    {displayFileName}
                   </p>
 
                   <p className="mt-1 text-[11px] text-neutral-400">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB · Ready to
-                    process
+                    {displayFileDetails}
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={removeFile}
+                  onClick={() => void removeFile()}
+                  disabled={uploading || removing}
                   aria-label="Remove CV"
-                  className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-white"
+                  className="rounded-lg p-2 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-neutral-800 dark:hover:text-white"
                 >
-                  <X className="h-4 w-4" />
+                  {removing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <X className="h-4 w-4" />
+                  )}
                 </button>
               </div>
 
               <div className="border-t border-neutral-100 px-5 py-4 dark:border-neutral-800">
                 <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10">
-                    <Check className="h-3 w-3" />
-                  </span>
-                  File accepted
+                  {uploading ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Uploading your CV...
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10">
+                        <Check className="h-3 w-3" />
+                      </span>
+                      File accepted
+                    </>
+                  )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {error && (
+            <div
+              role="alert"
+              className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400"
+            >
+              {error}
             </div>
           )}
 
@@ -162,24 +289,24 @@ export default function CVPage() {
             type="file"
             accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             className="hidden"
-            onChange={(event) => handleFile(event.target.files?.[0])}
+            onChange={(event) => {
+              void handleFile(event.target.files?.[0]);
+            }}
           />
         </section>
 
         <section className="mt-6 grid gap-3 sm:grid-cols-3">
-          {[
-            "Extract skills",
-            "Identify experience",
-            "Improve matching",
-          ].map((item) => (
-            <div
-              key={item}
-              className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
-            >
-              <Check className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-              <p className="mt-3 text-xs font-semibold">{item}</p>
-            </div>
-          ))}
+          {["Extract skills", "Identify experience", "Improve matching"].map(
+            (item) => (
+              <div
+                key={item}
+                className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+              >
+                <Check className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                <p className="mt-3 text-xs font-semibold">{item}</p>
+              </div>
+            ),
+          )}
         </section>
 
         <section className="mt-6 rounded-xl border border-violet-100 bg-violet-50/60 p-5 dark:border-violet-500/20 dark:bg-violet-500/5">
@@ -187,13 +314,11 @@ export default function CVPage() {
             <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
 
             <div>
-              <h2 className="text-sm font-bold">
-                You review everything
-              </h2>
+              <h2 className="text-sm font-bold">You review everything</h2>
 
               <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
                 Radar will propose profile changes from your CV. Nothing
-                should silently overwrite your existing information.
+                silently overwrites your existing information.
               </p>
             </div>
           </div>
@@ -202,6 +327,7 @@ export default function CVPage() {
         <footer className="mt-8 flex flex-col-reverse gap-3 border-t border-neutral-200 pt-5 dark:border-neutral-800 sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
+            onClick={skip}
             className="text-xs font-semibold text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
           >
             Skip for now
@@ -209,8 +335,8 @@ export default function CVPage() {
 
           <button
             type="button"
-            disabled={!uploaded}
-            onClick={() => router.push("/cv/review")}
+            disabled={uploading || removing || !storedCv}
+            onClick={continueToReview}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:pointer-events-none disabled:opacity-40"
           >
             Continue

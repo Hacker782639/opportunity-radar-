@@ -1,20 +1,22 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
   Bookmark,
   BriefcaseBusiness,
   CalendarDays,
   Compass,
-  FileText,
   LayoutDashboard,
-  Search,
   Settings,
   Sparkles,
   UserRound,
   X,
 } from "lucide-react";
+
+import { createClient } from "@/lib/supabase/client";
+import { calculateProfileStrength } from "@/lib/profile/strength";
 
 type SidebarProps = {
   mobileOpen?: boolean;
@@ -32,13 +34,54 @@ const mainLinks = [
 
 const accountLinks = [
   { label: "Profile", href: "/profile", icon: UserRound },
-  { label: "CV & Resume", href: "/cv", icon: FileText },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
 export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const supabase = useMemo(() => createClient(), []);
+  const [profileStrength, setProfileStrength] = useState(0);
+  const [strengthAvailable, setStrengthAvailable] = useState(true);
+
+  useEffect(() => {
+    const loadProfileStrength = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setStrengthAvailable(false);
+        setProfileStrength(0);
+        return;
+      }
+
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select(
+          "full_name, location, experience, skills, preferred_roles, opportunity_types, work_preference, cv_file_name, cv_storage_path",
+        )
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Profile strength lookup error:", error);
+        setStrengthAvailable(false);
+        setProfileStrength(0);
+        return;
+      }
+
+      setStrengthAvailable(true);
+      setProfileStrength(
+        calculateProfileStrength({
+          ...profile,
+          has_cv: Boolean(profile?.cv_file_name && profile?.cv_storage_path),
+        }),
+      );
+    };
+
+    loadProfileStrength();
+  }, [supabase]);
 
   return (
     <>
@@ -153,12 +196,19 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               </span>
 
               <span className="text-xs font-bold text-violet-600 dark:text-violet-400">
-                66%
+                {strengthAvailable ? `${profileStrength}%` : "–"}
               </span>
             </div>
 
             <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-              <div className="h-full w-2/3 rounded-full bg-violet-600" />
+              <div
+                className="h-full rounded-full bg-violet-600"
+                style={{
+                  width: strengthAvailable
+                    ? `${profileStrength}%`
+                    : 0,
+                }}
+              />
             </div>
 
             <Link

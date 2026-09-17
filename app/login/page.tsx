@@ -21,6 +21,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const canContinue = email.trim() !== "" && password.trim() !== "";
 
@@ -45,6 +46,25 @@ export default function LoginPage() {
 
     router.push("/dashboard");
     router.refresh();
+  }
+
+  async function handleGoogleLogin() {
+    if (googleLoading) return;
+
+    setError("");
+    setGoogleLoading(true);
+
+    const { error: googleError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+
+    if (googleError) {
+      setError(googleError.message);
+      setGoogleLoading(false);
+    }
   }
 
   return (
@@ -82,12 +102,14 @@ export default function LoginPage() {
           >
             <button
               type="button"
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white text-sm font-semibold transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+              onClick={handleGoogleLogin}
+              disabled={googleLoading}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white text-sm font-semibold transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-neutral-950 text-[10px] font-bold text-white dark:bg-white dark:text-neutral-950">
                 G
               </span>
-              Continue with Google
+              {googleLoading ? "Continuing..." : "Continue with Google"}
             </button>
 
             <div className="my-6 flex items-center gap-3">
@@ -175,7 +197,7 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
             <button
               type="button"
               onClick={() => router.push("/signup")}

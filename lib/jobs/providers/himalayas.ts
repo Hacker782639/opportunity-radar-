@@ -1,4 +1,5 @@
 import type { Job } from "../types";
+import { extractDeadline, fetchWithTimeout, mapValidJobs } from "./utils";
 
 type HimalayasJob = {
   title?: string;
@@ -67,7 +68,7 @@ export async function getHimalayasJobs(search = ""): Promise<Job[]> {
     url.searchParams.set("q", search.trim());
   }
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     headers: {
       Accept: "application/json",
     },
@@ -83,67 +84,68 @@ export async function getHimalayasJobs(search = ""): Promise<Job[]> {
   const data = (await response.json()) as HimalayasResponse;
   const query = search.trim().toLowerCase();
 
-  return (data.jobs ?? [])
-    .filter((job) => job.title && job.applicationLink)
-    .filter((job) => {
-      if (!query) return true;
+  return mapValidJobs(data.jobs ?? [], (job) => {
+    if (!job.title || !job.applicationLink || !job.companyName) return null;
 
-      const text = [
-        job.title,
-        job.companyName,
-        job.excerpt,
-        job.description,
-        ...(job.categories ?? []),
-        ...(job.parentCategories ?? []),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+    let salary: string | undefined;
 
-      return text.includes(query);
-    })
-    .map((job) => {
-      let salary: string | undefined;
+    if (job.minSalary || job.maxSalary) {
+      const currency = job.currency || "USD";
+      const period = job.salaryPeriod || "annual";
 
-      if (job.minSalary || job.maxSalary) {
-        const currency = job.currency || "USD";
-        const period = job.salaryPeriod || "annual";
-
-        if (job.minSalary && job.maxSalary) {
-          salary = `${currency} ${job.minSalary.toLocaleString()}–${job.maxSalary.toLocaleString()} / ${period}`;
-        } else if (job.minSalary) {
-          salary = `${currency} ${job.minSalary.toLocaleString()}+ / ${period}`;
-        }
+      if (job.minSalary && job.maxSalary) {
+        salary = `${currency} ${job.minSalary.toLocaleString()}–${job.maxSalary.toLocaleString()} / ${period}`;
+      } else if (job.minSalary) {
+        salary = `${currency} ${job.minSalary.toLocaleString()}+ / ${period}`;
+      } else if (job.maxSalary) {
+        salary = `${currency} up to ${job.maxSalary.toLocaleString()} / ${period}`;
       }
+    }
 
-      const location =
-        job.locationRestrictions && job.locationRestrictions.length > 0
-          ? job.locationRestrictions.join(", ")
-          : "Worldwide";
+    const location =
+      job.locationRestrictions && job.locationRestrictions.length > 0
+        ? job.locationRestrictions.join(", ")
+        : "Worldwide";
 
-      const fullText = [
-        job.title,
-        job.excerpt,
-        job.description,
-        ...(job.categories ?? []),
-      ]
-        .filter(Boolean)
-        .join(" ");
+    const fullText = [
+      job.title,
+      job.companyName,
+      job.excerpt,
+      job.description,
+      ...(job.categories ?? []),
+      ...(job.parentCategories ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ");
 
-      return {
-        id: `himalayas-${job.guid ?? job.applicationLink}`,
-        title: job.title!,
-        company: job.companyName || "Himalayas",
-        location,
-        remote: true,
-        experience: job.seniority?.join(", ") || "Open",
-        salary,
-        url: job.applicationLink!,
-        source: "Himalayas",
-        publishedAt: job.pubDate
-          ? new Date(job.pubDate).toISOString()
+    if (query) {
+      const text = fullText.toLowerCase();
+
+      if (!text.includes(query)) return null;
+    }
+
+    const publishedDate = job.pubDate
+      ? new Date(job.pubDate * 1000)
+      : undefined;
+
+    return {
+      id: `himalayas-${job.guid ?? job.applicationLink}`,
+      title: job.title,
+      company: job.companyName,
+      category: job.categories?.[0] || job.parentCategories?.[0],
+      location,
+      remote: true,
+      experience: job.seniority?.join(", ") || "Open",
+      salary,
+      url: job.applicationLink,
+      source: "Himalayas",
+      publishedAt:
+        publishedDate && !Number.isNaN(publishedDate.getTime())
+          ? publishedDate.toISOString()
           : undefined,
-        skills: extractSkills(fullText),
-      };
-    });
+      deadline: extractDeadline(job.description || job.excerpt),
+      skills: extractSkills(fullText),
+      description: job.description || job.excerpt || undefined,
+    };
+  });
 }

@@ -1,30 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import {
   ArrowLeft,
   ArrowRight,
-  BriefcaseBusiness,
   Check,
-  Code2,
-  GraduationCap,
-  Laptop,
-  Loader2,
+  ChevronDown,
   MapPin,
+  Search,
   Sparkles,
-  Trophy,
+  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
-const steps = [
-  "Experience",
-  "Skills",
-  "Preferences",
-  "Interests",
+const countries = [
+  "Nigeria",
+  "United States",
+  "United Kingdom",
+  "Canada",
+  "Germany",
+  "France",
+  "Netherlands",
+  "Australia",
+  "South Africa",
+  "Ghana",
+  "Kenya",
+  "Rwanda",
+  "Uganda",
+  "Egypt",
+  "India",
+  "United Arab Emirates",
+  "Singapore",
+  "Other",
 ];
-
-const experiences = ["Beginner", "Junior", "Mid-level", "Senior"];
 
 const skills = [
   "JavaScript",
@@ -35,78 +44,183 @@ const skills = [
   "CSS",
   "Python",
   "Node.js",
+  "Java",
+  "C++",
+  "PHP",
+  "Flutter",
+  "Dart",
+  "SQL",
   "Git",
-  "UI/UX",
+  "UI/UX Design",
+  "Figma",
+  "Machine Learning",
+  "AI",
+  "Cybersecurity",
 ];
 
 const roles = [
   "Frontend Developer",
-  "Software Engineer",
+  "Backend Developer",
   "Full Stack Developer",
-  "UI/UX Designer",
+  "Software Engineer",
+  "AI / ML Engineer",
   "Mobile Developer",
+  "UI/UX Designer",
   "Data Analyst",
+  "Cybersecurity",
+  "DevOps Engineer",
 ];
 
 const opportunityTypes = [
-  { label: "Jobs", icon: BriefcaseBusiness },
-  { label: "Scholarships", icon: GraduationCap },
-  { label: "Fellowships", icon: Trophy },
-  { label: "Hackathons", icon: Code2 },
+  "Jobs",
+  "Scholarships",
+  "Grants",
+  "Fellowships",
+  "Hackathons",
 ];
+
+const experienceOptions = [
+  {
+    label: "Student",
+    description: "I'm currently studying",
+  },
+  {
+    label: "Entry Level",
+    description: "I'm starting my career",
+  },
+  {
+    label: "Junior",
+    description: "I have some experience",
+  },
+  {
+    label: "Mid Level",
+    description: "I'm an experienced professional",
+  },
+  {
+    label: "Senior",
+    description: "I'm highly experienced",
+  },
+];
+
+const workOptions = ["Remote", "Hybrid", "On-site", "Any"];
 
 export default function OnboardingPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [step, setStep] = useState(0);
-  const [experience, setExperience] = useState("Beginner");
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([
-    "JavaScript",
-    "HTML",
-    "CSS",
-  ]);
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([
-    "Frontend Developer",
-  ]);
-  const [selectedTypes, setSelectedTypes] = useState<string[]>(["Jobs"]);
-  const [workPreference, setWorkPreference] = useState("Remote");
-  const [location, setLocation] = useState("Nigeria");
-
+  const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [countryOpen, setCountryOpen] = useState(false);
+  const [countrySearch, setCountrySearch] = useState("");
+  const [skillSearch, setSkillSearch] = useState("");
+  const [roleSearch, setRoleSearch] = useState("");
   const [error, setError] = useState("");
 
-  const toggleValue = (
-    value: string,
-    setter: React.Dispatch<React.SetStateAction<string[]>>
-  ) => {
-    setter((current) =>
-      current.includes(value)
-        ? current.filter((item) => item !== value)
-        : [...current, value]
+  const [fullName, setFullName] = useState("");
+  const [country, setCountry] = useState("");
+  const [experience, setExperience] = useState("");
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [workPreference, setWorkPreference] = useState("");
+
+  useEffect(() => {
+    async function loadProfile() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      setFullName(
+        data?.full_name ||
+          user.user_metadata?.full_name ||
+          user.user_metadata?.name ||
+          ""
+      );
+      setCountry(data?.location || "");
+      setExperience(data?.experience || "");
+      setSelectedSkills(data?.skills || []);
+      setSelectedRoles(data?.preferred_roles || []);
+      setSelectedTypes(data?.opportunity_types || []);
+      setWorkPreference(data?.work_preference || "");
+      setLoading(false);
+    }
+
+    void loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const filteredCountries = useMemo(() => {
+    const query = countrySearch.toLowerCase().trim();
+
+    if (!query) return countries;
+
+    return countries.filter((item) =>
+      item.toLowerCase().includes(query)
     );
-  };
+  }, [countrySearch]);
 
-  const nextStep = () => {
-    setStep((current) => Math.min(current + 1, steps.length - 1));
-  };
+  const filteredSkills = useMemo(() => {
+    const query = skillSearch.toLowerCase().trim();
 
-  const previousStep = () => {
-    setStep((current) => Math.max(current - 1, 0));
-  };
+    if (!query) return skills;
 
-  const finishSetup = async () => {
-    if (saving) return;
+    return skills.filter((item) =>
+      item.toLowerCase().includes(query)
+    );
+  }, [skillSearch]);
 
-    setError("");
+  const filteredRoles = useMemo(() => {
+    const query = roleSearch.toLowerCase().trim();
+
+    if (!query) return roles;
+
+    return roles.filter((item) =>
+      item.toLowerCase().includes(query)
+    );
+  }, [roleSearch]);
+
+  function toggleItem(
+    value: string,
+    selected: string[],
+    setter: (value: string[]) => void
+  ) {
+    setter(
+      selected.includes(value)
+        ? selected.filter((item) => item !== value)
+        : [...selected, value]
+    );
+  }
+
+  function canContinue() {
+    if (step === 1) return country.trim().length > 0;
+    if (step === 2) return experience.length > 0;
+    if (step === 3) return selectedSkills.length > 0;
+    if (step === 4) return selectedRoles.length > 0;
+    return selectedTypes.length > 0;
+  }
+
+  async function saveAndFinish() {
     setSaving(true);
+    setError("");
 
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (!user) {
-      router.push("/login");
+      router.replace("/login");
       return;
     }
 
@@ -114,342 +228,478 @@ export default function OnboardingPage() {
       .from("profiles")
       .upsert({
         id: user.id,
-        full_name:
-          user.user_metadata?.full_name ||
-          user.email?.split("@")[0] ||
-          "User",
-        location: location.trim() || "Nigeria",
+        full_name: fullName.trim() || null,
+        location: country,
         experience,
         skills: selectedSkills,
         preferred_roles: selectedRoles,
         opportunity_types: selectedTypes,
-        work_preference: workPreference,
+        work_preference: workPreference || null,
         onboarding_completed: true,
         updated_at: new Date().toISOString(),
       });
 
     if (profileError) {
-      console.error("Profile save error:", profileError);
-      setError("We couldn't save your profile. Please try again.");
+      setError(profileError.message);
       setSaving(false);
       return;
     }
 
     await supabase.auth.updateUser({
       data: {
-        onboarding_completed: true,
+        full_name: fullName.trim() || null,
       },
     });
 
-    router.push("/dashboard");
-    router.refresh();
-  };
+    router.replace("/dashboard");
+  }
+
+  function next() {
+    if (!canContinue()) return;
+
+    if (step < 5) {
+      setStep((current) => current + 1);
+      return;
+    }
+
+    void saveAndFinish();
+  }
+
+  function back() {
+    if (step > 1) {
+      setStep((current) => current - 1);
+    }
+  }
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#fafaf8] text-neutral-950 dark:bg-[#111110] dark:text-white">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-950 dark:border-neutral-700 dark:border-t-white" />
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#fafaf8] text-neutral-950 dark:bg-[#111110] dark:text-white">
-      <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-4 py-6 sm:px-6 lg:py-10">
-
+      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-6 sm:px-8">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-950 text-white dark:bg-white dark:text-neutral-950">
-              <Sparkles className="h-4 w-4" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-neutral-950 text-white dark:bg-white dark:text-neutral-950">
+              <Sparkles size={17} />
             </div>
-
-            <span className="text-sm font-bold tracking-tight">
+            <span className="text-sm font-semibold tracking-tight">
               Opportunity Radar
             </span>
           </div>
 
-          <span className="text-xs text-neutral-400">
-            {step + 1} of {steps.length}
+          <span className="text-xs font-medium text-neutral-500">
+            Step {step} of 5
           </span>
         </header>
 
-        <div className="mt-8 h-1 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
-          <div
-            className="h-full rounded-full bg-violet-600 transition-all duration-300"
-            style={{
-              width: `${((step + 1) / steps.length) * 100}%`,
-            }}
-          />
+        <div className="mx-auto mt-8 w-full max-w-2xl">
+          <div className="flex gap-1.5">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div
+                key={index}
+                className={`h-1 flex-1 rounded-full transition-all ${
+                  index + 1 <= step
+                    ? "bg-neutral-950 dark:bg-white"
+                    : "bg-neutral-200 dark:bg-neutral-800"
+                }`}
+              />
+            ))}
+          </div>
         </div>
 
-        <section className="mt-10 flex-1">
-          {step === 0 && (
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-400">
-                Step 01
-              </p>
+        <section className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center py-10">
+          {step === 1 && (
+            <StepContainer
+              eyebrow="01 · About you"
+              title="Where are you based?"
+              description="We'll use your location to find opportunities you're eligible for."
+            >
+              <label className="mb-2 block text-sm font-medium">
+                Country
+              </label>
 
-              <h1 className="mt-3 text-3xl font-bold tracking-tight">
-                Where are you in your journey?
-              </h1>
+              <button
+                type="button"
+                onClick={() => setCountryOpen((value) => !value)}
+                className="flex w-full items-center justify-between rounded-2xl border border-neutral-200 bg-white px-4 py-4 text-left shadow-sm transition hover:border-neutral-400 dark:border-neutral-800 dark:bg-[#171716] dark:hover:border-neutral-600"
+              >
+                <span className={country ? "" : "text-neutral-500"}>
+                  {country || "Select your country"}
+                </span>
+                <ChevronDown
+                  size={18}
+                  className={`transition-transform ${
+                    countryOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
 
-              <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-                This helps Radar prioritize opportunities appropriate for
-                your current experience.
-              </p>
+              {countryOpen && (
+                <div className="mt-2 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-[#171716]">
+                  <div className="flex items-center gap-2 border-b border-neutral-200 px-4 dark:border-neutral-800">
+                    <Search size={17} className="text-neutral-400" />
+                    <input
+                      autoFocus
+                      value={countrySearch}
+                      onChange={(event) =>
+                        setCountrySearch(event.target.value)
+                      }
+                      placeholder="Search countries..."
+                      className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-neutral-400"
+                    />
+                  </div>
 
-              <div className="mt-8 grid gap-2">
-                {experiences.map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setExperience(item)}
-                    className={`flex items-center justify-between rounded-xl border p-4 text-left transition ${
-                      experience === item
-                        ? "border-violet-300 bg-violet-50/70 dark:border-violet-500/30 dark:bg-violet-500/10"
-                        : "border-neutral-200 bg-white hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900"
-                    }`}
-                  >
-                    <span className="text-sm font-semibold">{item}</span>
+                  <div className="max-h-64 overflow-y-auto p-2">
+                    {filteredCountries.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => {
+                          setCountry(item);
+                          setCountryOpen(false);
+                          setCountrySearch("");
+                        }}
+                        className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm transition hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      >
+                        <span>{item}</span>
+                        {country === item && <Check size={16} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-                    {experience === item && (
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-white">
-                        <Check className="h-3 w-3" />
-                      </span>
-                    )}
-                  </button>
-                ))}
+              <div className="mt-5 flex items-center gap-2 text-xs text-neutral-500">
+                <MapPin size={14} />
+                Your location improves opportunity matching.
               </div>
-            </div>
+            </StepContainer>
           )}
 
-          {step === 1 && (
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-400">
-                Step 02
-              </p>
+          {step === 2 && (
+            <StepContainer
+              eyebrow="02 · Experience"
+              title="Where are you in your career?"
+              description="This helps us prioritize opportunities at the right level."
+            >
+              <div className="space-y-2">
+                {experienceOptions.map((option) => {
+                  const selected = experience === option.label;
 
-              <h1 className="mt-3 text-3xl font-bold tracking-tight">
-                What can you work with?
-              </h1>
+                  return (
+                    <button
+                      key={option.label}
+                      type="button"
+                      onClick={() => setExperience(option.label)}
+                      className={`flex w-full items-center justify-between rounded-2xl border p-4 text-left transition ${
+                        selected
+                          ? "border-neutral-950 bg-neutral-950 text-white dark:border-white dark:bg-white dark:text-neutral-950"
+                          : "border-neutral-200 bg-white hover:border-neutral-400 dark:border-neutral-800 dark:bg-[#171716] dark:hover:border-neutral-600"
+                      }`}
+                    >
+                      <div>
+                        <p className="text-sm font-semibold">
+                          {option.label}
+                        </p>
+                        <p
+                          className={`mt-1 text-xs ${
+                            selected
+                              ? "text-neutral-300 dark:text-neutral-600"
+                              : "text-neutral-500"
+                          }`}
+                        >
+                          {option.description}
+                        </p>
+                      </div>
 
-              <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-                Select the skills Radar should use when finding opportunities.
-              </p>
+                      {selected && <Check size={18} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </StepContainer>
+          )}
 
-              <div className="mt-8 flex flex-wrap gap-2">
-                {skills.map((skill) => {
+          {step === 3 && (
+            <StepContainer
+              eyebrow="03 · Skills"
+              title="What can you work with?"
+              description="Choose the skills you want Opportunity Radar to use for matching."
+            >
+              <SearchInput
+                value={skillSearch}
+                onChange={setSkillSearch}
+                placeholder="Search skills..."
+              />
+
+              {selectedSkills.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedSkills.map((skill) => (
+                    <button
+                      key={skill}
+                      type="button"
+                      onClick={() =>
+                        toggleItem(
+                          skill,
+                          selectedSkills,
+                          setSelectedSkills
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-full bg-neutral-950 px-3 py-1.5 text-xs font-medium text-white dark:bg-white dark:text-neutral-950"
+                    >
+                      {skill}
+                      <X size={13} />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-5 flex max-h-64 flex-wrap gap-2 overflow-y-auto pr-1">
+                {filteredSkills.map((skill) => {
                   const selected = selectedSkills.includes(skill);
 
                   return (
                     <button
                       key={skill}
                       type="button"
-                      onClick={() => toggleValue(skill, setSelectedSkills)}
-                      className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+                      onClick={() =>
+                        toggleItem(
+                          skill,
+                          selectedSkills,
+                          setSelectedSkills
+                        )
+                      }
+                      className={`rounded-full border px-3.5 py-2 text-xs font-medium transition ${
                         selected
-                          ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-400"
-                          : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
+                          ? "border-neutral-950 bg-neutral-950 text-white dark:border-white dark:bg-white dark:text-neutral-950"
+                          : "border-neutral-200 bg-white hover:border-neutral-400 dark:border-neutral-800 dark:bg-[#171716] dark:hover:border-neutral-600"
                       }`}
                     >
-                      {selected && (
-                        <Check className="mr-1 inline h-3 w-3" />
-                      )}
                       {skill}
                     </button>
                   );
                 })}
               </div>
-            </div>
+
+              <p className="mt-4 text-xs text-neutral-500">
+                {selectedSkills.length} skill
+                {selectedSkills.length === 1 ? "" : "s"} selected
+              </p>
+            </StepContainer>
           )}
 
-          {step === 2 && (
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-400">
-                Step 03
-              </p>
+          {step === 4 && (
+            <StepContainer
+              eyebrow="04 · Career goals"
+              title="What kind of work are you looking for?"
+              description="Select one or more roles you'd like your radar to prioritize."
+            >
+              <SearchInput
+                value={roleSearch}
+                onChange={setRoleSearch}
+                placeholder="Search roles..."
+              />
 
-              <h1 className="mt-3 text-3xl font-bold tracking-tight">
-                What opportunities fit you?
-              </h1>
+              <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {filteredRoles.map((role) => {
+                  const selected = selectedRoles.includes(role);
 
-              <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-                Choose your preferred roles and how you want to work.
-              </p>
-
-              <div className="mt-8">
-                <p className="mb-3 text-xs font-bold">Preferred roles</p>
-
-                <div className="flex flex-wrap gap-2">
-                  {roles.map((role) => {
-                    const selected = selectedRoles.includes(role);
-
-                    return (
-                      <button
-                        key={role}
-                        type="button"
-                        onClick={() => toggleValue(role, setSelectedRoles)}
-                        className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
-                          selected
-                            ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-400"
-                            : "border-neutral-200 bg-white text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
-                        }`}
-                      >
-                        {selected && (
-                          <Check className="mr-1 inline h-3 w-3" />
-                        )}
-                        {role}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="mt-8">
-                <p className="mb-3 text-xs font-bold">Opportunity types</p>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {opportunityTypes.map((type) => {
-                    const Icon = type.icon;
-                    const selected = selectedTypes.includes(type.label);
-
-                    return (
-                      <button
-                        key={type.label}
-                        type="button"
-                        onClick={() =>
-                          toggleValue(type.label, setSelectedTypes)
-                        }
-                        className={`flex items-center gap-3 rounded-xl border p-3.5 text-left transition ${
-                          selected
-                            ? "border-violet-300 bg-violet-50/70 dark:border-violet-500/30 dark:bg-violet-500/10"
-                            : "border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
-                        }`}
-                      >
-                        <Icon className="h-4 w-4 text-neutral-500" />
-                        <span className="text-xs font-semibold">
-                          {type.label}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="mt-8">
-                <p className="mb-3 text-xs font-bold">Work preference</p>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {["Remote", "Hybrid", "On-site"].map((item) => (
+                  return (
                     <button
-                      key={item}
+                      key={role}
                       type="button"
-                      onClick={() => setWorkPreference(item)}
-                      className={`rounded-lg border px-3 py-3 text-xs font-semibold transition ${
-                        workPreference === item
-                          ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-400"
-                          : "border-neutral-200 bg-white text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
+                      onClick={() =>
+                        toggleItem(
+                          role,
+                          selectedRoles,
+                          setSelectedRoles
+                        )
+                      }
+                      className={`flex min-h-16 items-center justify-between rounded-2xl border px-4 text-left text-sm font-medium transition ${
+                        selected
+                          ? "border-neutral-950 bg-neutral-950 text-white dark:border-white dark:bg-white dark:text-neutral-950"
+                          : "border-neutral-200 bg-white hover:border-neutral-400 dark:border-neutral-800 dark:bg-[#171716] dark:hover:border-neutral-600"
                       }`}
                     >
-                      <Laptop className="mx-auto mb-1 h-4 w-4" />
-                      {item}
+                      <span>{role}</span>
+                      {selected && <Check size={17} />}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
+            </StepContainer>
+          )}
+
+          {step === 5 && (
+            <StepContainer
+              eyebrow="05 · Preferences"
+              title="What should we prioritize?"
+              description="Choose the opportunities and work styles that fit you."
+            >
+              <p className="mb-3 text-sm font-medium">Opportunity types</p>
+
+              <div className="flex flex-wrap gap-2">
+                {opportunityTypes.map((type) => {
+                  const selected = selectedTypes.includes(type);
+
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() =>
+                        toggleItem(
+                          type,
+                          selectedTypes,
+                          setSelectedTypes
+                        )
+                      }
+                      className={`rounded-full border px-4 py-2.5 text-xs font-medium transition ${
+                        selected
+                          ? "border-neutral-950 bg-neutral-950 text-white dark:border-white dark:bg-white dark:text-neutral-950"
+                          : "border-neutral-200 bg-white hover:border-neutral-400 dark:border-neutral-800 dark:bg-[#171716] dark:hover:border-neutral-600"
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="mb-3 mt-7 text-sm font-medium">
+                Work preference
+              </p>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {workOptions.map((option) => {
+                  const selected = workPreference === option;
+
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setWorkPreference(option)}
+                      className={`rounded-2xl border px-3 py-3 text-xs font-medium transition ${
+                        selected
+                          ? "border-neutral-950 bg-neutral-950 text-white dark:border-white dark:bg-white dark:text-neutral-950"
+                          : "border-neutral-200 bg-white hover:border-neutral-400 dark:border-neutral-800 dark:bg-[#171716] dark:hover:border-neutral-600"
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-7 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-[#171716]">
+                <p className="text-sm font-semibold">
+                  Your radar is almost ready.
+                </p>
+                <p className="mt-1 text-xs leading-5 text-neutral-500">
+                  We&apos;ll use your preferences to rank opportunities that
+                  fit your profile.
+                </p>
+              </div>
+            </StepContainer>
+          )}
+
+          {error && (
+            <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+              {error}
             </div>
           )}
 
-          {step === 3 && (
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-400">
-                Step 04
-              </p>
+          <div className="mt-8 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={back}
+              disabled={step === 1 || saving}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+                step === 1
+                  ? "pointer-events-none opacity-0"
+                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950 dark:hover:bg-neutral-800 dark:hover:text-white"
+              }`}
+            >
+              <ArrowLeft size={16} />
+              Back
+            </button>
 
-              <h1 className="mt-3 text-3xl font-bold tracking-tight">
-                Where should Radar look?
-              </h1>
-
-              <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-                Your location helps us prioritize relevant opportunities.
-              </p>
-
-              <div className="mt-8">
-                <label className="text-xs font-bold">
-                  Location
-                </label>
-
-                <div className="relative mt-2">
-                  <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-
-                  <input
-                    value={location}
-                    onChange={(event) => setLocation(event.target.value)}
-                    placeholder="Country or city"
-                    className="h-11 w-full rounded-lg border border-neutral-200 bg-white pl-10 pr-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-500/10 dark:border-neutral-800 dark:bg-neutral-900"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-8 rounded-xl border border-violet-100 bg-violet-50/60 p-5 dark:border-violet-500/20 dark:bg-violet-500/5">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                  <p className="text-sm font-bold">
-                    Your radar is almost ready
-                  </p>
-                </div>
-
-                <p className="mt-2 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-                  We'll use these preferences to prioritize opportunities
-                  that are more relevant to you. You can change everything
-                  later from your profile.
-                </p>
-              </div>
-
-              {error && (
-                <p className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-xs font-medium text-red-500">
-                  {error}
-                </p>
-              )}
-            </div>
-          )}
+            <button
+              type="button"
+              onClick={next}
+              disabled={!canContinue() || saving}
+              className="inline-flex items-center gap-2 rounded-xl bg-neutral-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
+            >
+              {saving
+                ? "Setting up..."
+                : step === 5
+                  ? "Build my radar"
+                  : "Continue"}
+              {!saving && <ArrowRight size={16} />}
+            </button>
+          </div>
         </section>
 
-        <footer className="mt-10 flex items-center justify-between border-t border-neutral-200 pt-5 dark:border-neutral-800">
-          <button
-            type="button"
-            onClick={previousStep}
-            disabled={step === 0 || saving}
-            className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-neutral-500 transition hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-30 dark:hover:bg-neutral-900"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back
-          </button>
-
-          {step < steps.length - 1 ? (
-            <button
-              type="button"
-              onClick={nextStep}
-              disabled={saving}
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-neutral-950 px-4 text-xs font-semibold text-white transition hover:bg-neutral-800 disabled:pointer-events-none disabled:opacity-50 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
-            >
-              Continue
-              <ArrowRight className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={finishSetup}
-              disabled={saving}
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:pointer-events-none disabled:opacity-50"
-            >
-              {saving ? (
-                <>
-                  Saving
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                </>
-              ) : (
-                <>
-                  Finish setup
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </>
-              )}
-            </button>
-          )}
+        <footer className="pb-2 text-center text-xs text-neutral-400">
+          Your preferences can be changed anytime from your profile.
         </footer>
       </div>
     </main>
+  );
+}
+
+function StepContainer({
+  eyebrow,
+  title,
+  description,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
+        {eyebrow}
+      </p>
+
+      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+        {title}
+      </h1>
+
+      <p className="mt-3 max-w-xl text-sm leading-6 text-neutral-500 sm:text-base">
+        {description}
+      </p>
+
+      <div className="mt-8">{children}</div>
+    </div>
+  );
+}
+
+function SearchInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-4 dark:border-neutral-800 dark:bg-[#171716]">
+      <Search size={17} className="shrink-0 text-neutral-400" />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-neutral-400"
+      />
+    </div>
   );
 }

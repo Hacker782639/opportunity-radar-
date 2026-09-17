@@ -24,6 +24,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
 
   const passwordStrong = password.length >= 8;
@@ -65,6 +66,25 @@ export default function SignupPage() {
 
     router.push("/onboarding");
     router.refresh();
+  };
+
+  const handleGoogleLogin = async () => {
+    if (googleLoading) return;
+
+    setError("");
+    setGoogleLoading(true);
+
+    const { error: googleError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+
+    if (googleError) {
+      setError(googleError.message);
+      setGoogleLoading(false);
+    }
   };
 
   if (verificationSent) {
@@ -154,10 +174,15 @@ export default function SignupPage() {
           </p>
         </div>
 
-        <div className="mb-6 flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-black/10 bg-white text-sm font-semibold dark:border-white/10 dark:bg-[#181817]">
+        <button
+          type="button"
+          onClick={handleGoogleLogin}
+          disabled={googleLoading}
+          className="mb-6 flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-black/10 bg-white text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#181817]"
+        >
           <span className="text-lg font-bold">G</span>
-          Continue with Google
-        </div>
+          {googleLoading ? "Continuing..." : "Continue with Google"}
+        </button>
 
         <div className="mb-6 flex items-center gap-4">
           <div className="h-px flex-1 bg-black/10 dark:bg-white/10" />

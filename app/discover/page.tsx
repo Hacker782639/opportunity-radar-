@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
   Bookmark,
   BriefcaseBusiness,
   Check,
-  ChevronDown,
   Clock3,
   Filter,
   Loader2,
@@ -18,20 +19,12 @@ import {
 
 import { AppShell } from "@/components/layout/app-shell";
 import { createClient } from "@/lib/supabase/client";
+import type { Job } from "@/lib/jobs/types";
+import {
+  getJobMatch,
+  type MatchingProfile,
+} from "@/lib/jobs/matching";
 
-type Job = {
-  id: string;
-  title: string;
-  company: string;
-  location: string;
-  remote: boolean;
-  experience: string;
-  salary?: string;
-  url: string;
-  source: string;
-  publishedAt?: string;
-  skills: string[];
-};
 
 const categories = [
   "All",
@@ -80,22 +73,6 @@ function inferCategory(job: Job) {
   return "Jobs";
 }
 
-function getMatchScore(job: Job) {
-  const text =
-    `${job.title} ${job.company} ${job.skills.join(" ")} ${job.location}`.toLowerCase();
-
-  let score = 70;
-
-  if (text.includes("frontend")) score += 8;
-  if (text.includes("javascript")) score += 5;
-  if (text.includes("react")) score += 5;
-  if (text.includes("next.js")) score += 4;
-  if (text.includes("typescript")) score += 3;
-  if (job.remote) score += 3;
-
-  return Math.min(score, 98);
-}
-
 function formatDate(value?: string) {
   if (!value) return "Recently posted";
 
@@ -119,14 +96,23 @@ function formatDate(value?: string) {
   });
 }
 
-export default function DiscoverPage() {
-  const supabase = createClient();
+function DiscoverContent() {
+  const supabase = useMemo(() => createClient(), []);
+  const searchParams = useSearchParams();
 
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [profile, setProfile] = useState<MatchingProfile>({});
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [category, setCategory] = useState("All");
   const [experience, setExperience] = useState("All");
-  const [search, setSearch] = useState("");
+  const searchParam = searchParams.get("search") ?? "";
+  const [search, setSearch] = useState(searchParam);
+  const [lastSearchParam, setLastSearchParam] = useState(searchParam);
+
+  if (searchParam !== lastSearchParam) {
+    setLastSearchParam(searchParam);
+    setSearch(searchParam);
+  }
   const [sort, setSort] = useState("Match");
   const [remoteOnly, setRemoteOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -136,25 +122,35 @@ export default function DiscoverPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const loadSaved = async () => {
+    const loadUserData = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (!user) return;
 
-      const { data } = await supabase
-        .from("saved_opportunities")
-        .select("opportunity_id")
-        .eq("user_id", user.id);
+      const [profileResult, savedResult] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select(
+            "skills, preferred_roles, opportunity_types, experience, work_preference, location",
+          )
+          .eq("id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("saved_opportunities")
+          .select("opportunity_id")
+          .eq("user_id", user.id),
+      ]);
 
+      setProfile(profileResult.data ?? {});
       setSavedIds(
-        data?.map((item) => item.opportunity_id) ?? [],
+        savedResult.data?.map((item) => item.opportunity_id) ?? [],
       );
     };
 
-    loadSaved();
-  }, []);
+    loadUserData();
+  }, [supabase]);
 
   useEffect(() => {
     const loadJobs = async () => {
@@ -246,6 +242,14 @@ export default function DiscoverPage() {
     setSavingId(null);
   };
 
+  const matchByJobId = useMemo(
+    () =>
+      new Map(
+        jobs.map((job) => [job.id, getJobMatch(job, profile)]),
+      ),
+    [jobs, profile],
+  );
+
   const filteredJobs = useMemo(() => {
     let result = [...jobs];
 
@@ -269,7 +273,9 @@ export default function DiscoverPage() {
 
     if (sort === "Match") {
       result.sort(
-        (a, b) => getMatchScore(b) - getMatchScore(a),
+        (a, b) =>
+          (matchByJobId.get(b.id)?.score ?? 0) -
+          (matchByJobId.get(a.id)?.score ?? 0),
       );
     } else {
       result.sort((a, b) => {
@@ -292,6 +298,7 @@ export default function DiscoverPage() {
     experience,
     remoteOnly,
     sort,
+    matchByJobId,
   ]);
 
   return (
@@ -480,6 +487,7 @@ export default function DiscoverPage() {
                     setCategory("All");
                     setExperience("All");
                     setRemoteOnly(false);
+                    setSort("Match");
                   }}
                   className="mt-4 rounded-lg bg-neutral-950 px-4 py-2 text-xs font-bold text-white dark:bg-white dark:text-neutral-950"
                 >
@@ -494,7 +502,7 @@ export default function DiscoverPage() {
               <section className="mt-4 space-y-3">
                 {filteredJobs.map((job) => {
                   const saved = savedIds.includes(job.id);
-                  const match = getMatchScore(job);
+                  const match = matchByJobId.get(job.id)?.score ?? 0;
 
                   return (
                     <article
@@ -578,11 +586,11 @@ export default function DiscoverPage() {
                           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-neutral-400">
                             <span className="inline-flex items-center gap-1">
                               <MapPin className="h-3 w-3" />
-                              {job.location || "Worldwide"}
+                              {job.location || "Location not listed"}
                             </span>
 
                             <span>
-                              {job.experience || "All levels"}
+                              {job.experience || "Experience not listed"}
                             </span>
 
                             {job.salary && (
@@ -606,15 +614,13 @@ export default function DiscoverPage() {
                           )}
 
                    <div className="mt-4 flex items-center justify-end">
-                            <a
-                              href={job.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <Link
+                              href={`/opportunities/${encodeURIComponent(job.id)}`}
                               className="inline-flex items-center gap-1.5 text-xs font-bold text-neutral-700 hover:text-neutral-950 dark:text-neutral-300 dark:hover:text-white"
                             >
                               View opportunity
                               <ArrowUpRight className="h-3.5 w-3.5" />
-                            </a>
+                            </Link>
                           </div>
 
                         </div>
@@ -625,6 +631,37 @@ export default function DiscoverPage() {
               </section>
             )}
 
+        </div>
+      </main>
+    </AppShell>
+  );
+}
+
+export default function DiscoverPage() {
+  return (
+    <Suspense fallback={<DiscoverFallback />}>
+      <DiscoverContent />
+    </Suspense>
+  );
+}
+
+function DiscoverFallback() {
+  return (
+    <AppShell>
+      <main className="min-h-screen bg-[#fafaf8] text-neutral-950 dark:bg-[#111110] dark:text-white">
+        <div className="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <section
+            role="status"
+            aria-live="polite"
+            className="border-b border-neutral-200 pb-6 dark:border-neutral-800"
+          >
+            <span className="sr-only">Loading discover results...</span>
+            <div className="h-3 w-24 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
+            <div className="mt-5 h-8 w-72 max-w-full animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
+            <div className="mt-3 h-4 w-96 max-w-full animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
+          </section>
+
+          <div className="mt-6 h-11 w-full animate-pulse rounded-lg bg-neutral-200 dark:bg-neutral-800" />
         </div>
       </main>
     </AppShell>

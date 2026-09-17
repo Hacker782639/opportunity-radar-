@@ -12,6 +12,21 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { MatchScore } from "./match-score";
 
+function formatPostedAt(value?: string) {
+  if (!value) return "Posted date not available";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Posted date not available";
+  }
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 type OpportunityCardProps = {
   title: string;
   organization: string;
@@ -19,6 +34,7 @@ type OpportunityCardProps = {
   location: string;
   experience: string;
   salary?: string;
+  postedAt?: string;
   matchScore: number;
   skills: string[];
   saved?: boolean;
@@ -33,6 +49,7 @@ export function OpportunityCard({
   location,
   experience,
   salary,
+  postedAt,
   matchScore,
   skills,
   saved = false,
@@ -83,11 +100,11 @@ export function OpportunityCard({
           <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-neutral-500 dark:text-neutral-400">
             <span className="inline-flex items-center gap-1">
               <MapPin className="h-3.5 w-3.5" />
-              {location}
+              {location || "Location not listed"}
             </span>
 
             <span className="text-neutral-300 dark:text-neutral-700">·</span>
-            <span>{experience}</span>
+            <span>{experience || "Experience not listed"}</span>
 
             {salary && (
               <>
@@ -111,7 +128,7 @@ export function OpportunityCard({
 
           <div className="mt-4 flex items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">
             <span className="text-[11px] text-neutral-400">
-              Updated recently
+              {formatPostedAt(postedAt)}
             </span>
 
             <button

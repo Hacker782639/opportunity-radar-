@@ -1,312 +1,415 @@
 "use client";
 
-import { useState } from "react";
-
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ArrowUpRight,
   BriefcaseBusiness,
   CalendarDays,
-  CheckCircle2,
-  ChevronDown,
+  Check,
   Clock3,
-  Plus,
   Search,
+  X,
 } from "lucide-react";
-
+import { createClient } from "@/lib/supabase/client";
 import { AppShell } from "@/components/layout/app-shell";
 
-type ApplicationStatus =
-  | "Saved"
-  | "Applied"
-  | "Interview"
-  | "Offer"
-  | "Rejected";
-
 type Application = {
+  id: string;
+  opportunity_id: string;
   title: string;
-  organization: string;
-  type: string;
-  status: ApplicationStatus;
-  date: string;
-  match: number;
-  nextStep?: string;
+  company: string | null;
+  location: string | null;
+  url: string | null;
+  source: string | null;
+  match_score: number | null;
+  status: "Saved" | "Applied" | "Interview" | "Offer" | "Rejected";
+  next_step: string | null;
+  deadline: string | null;
+  applied_at: string | null;
+  created_at: string;
 };
 
-const applications: Application[] = [
-  {
-    title: "Frontend Engineer",
-    organization: "Vercel",
-    type: "Job",
-    status: "Interview",
-    date: "Aug 29",
-    match: 96,
-    nextStep: "Technical interview",
-  },
-  {
-    title: "Junior Software Engineer",
-    organization: "Andela",
-    type: "Job",
-    status: "Applied",
-    date: "Aug 31",
-    match: 93,
-    nextStep: "Awaiting response",
-  },
-  {
-    title: "Software Engineering Fellowship",
-    organization: "Major League Hacking",
-    type: "Fellowship",
-    status: "Saved",
-    date: "Sep 1",
-    match: 88,
-  },
-  {
-    title: "Frontend Developer",
-    organization: "Wellfound",
-    type: "Job",
-    status: "Applied",
-    date: "Aug 27",
-    match: 91,
-    nextStep: "Awaiting response",
-  },
-  {
-    title: "Open Source Hackathon",
-    organization: "GitHub",
-    type: "Hackathon",
-    status: "Rejected",
-    date: "Aug 22",
-    match: 86,
-  },
-];
+const tabs = ["All", "Saved", "Applied", "Interview", "Offer", "Rejected"] as const;
+type Tab = (typeof tabs)[number];
 
-const statuses: Array<"All" | ApplicationStatus> = [
-  "All",
-  "Saved",
-  "Applied",
-  "Interview",
-  "Offer",
-  "Rejected",
-];
-
-const statusStyles: Record<ApplicationStatus, string> = {
-  Saved:
-    "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
-  Applied:
-    "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-400",
+const statusStyles: Record<Application["status"], string> = {
+  Saved: "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
+  Applied: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
   Interview:
-    "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
-  Offer:
-    "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400",
+    "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
+  Offer: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
   Rejected:
-    "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400",
+    "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300",
 };
+
+function formatDate(value: string | null) {
+  if (!value) return "—";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
 
 export default function ApplicationsPage() {
-  const [statusFilter, setStatusFilter] =
-    useState<"All" | ApplicationStatus>("All");
+  const supabase = createClient();
 
-  const filtered =
-    statusFilter === "All"
-      ? applications
-      : applications.filter((item) => item.status === statusFilter);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [activeTab, setActiveTab] = useState<Tab>("All");
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
-  const counts = {
-    saved: applications.filter((item) => item.status === "Saved").length,
+  async function loadApplications() {
+    setLoading(true);
+    setError("");
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setApplications([]);
+      setLoading(false);
+      return;
+    }
+
+    const { data, error: queryError } = await supabase
+      .from("applications")
+      .select(
+        "id, opportunity_id, title, company, location, url, source, match_score, status, next_step, deadline, applied_at, created_at"
+      )
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (queryError) {
+      setError(queryError.message);
+      setApplications([]);
+    } else {
+      setApplications((data ?? []) as Application[]);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadApplications();
+    }, 0);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function updateApplication(
+    id: string,
+    updates: Partial<Application>
+  ) {
+    setUpdating(id);
+    setError("");
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setError("Please sign in again.");
+      setUpdating(null);
+      return;
+    }
+
+    const { data, error: updateError } = await supabase
+      .from("applications")
+      .update(updates)
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .select(
+        "id, opportunity_id, title, company, location, url, source, match_score, status, next_step, deadline, applied_at, created_at"
+      )
+      .single();
+
+    if (updateError) {
+      setError(updateError.message);
+    } else if (data) {
+      setApplications((current) =>
+        current.map((application) =>
+          application.id === id ? (data as Application) : application
+        )
+      );
+    }
+
+    setUpdating(null);
+  }
+
+  const filteredApplications = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return applications.filter((application) => {
+      const matchesTab =
+        activeTab === "All" || application.status === activeTab;
+
+      if (!matchesTab) return false;
+      if (!query) return true;
+
+      return [
+        application.title,
+        application.company,
+        application.location,
+        application.source,
+        application.status,
+      ]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(query));
+    });
+  }, [applications, activeTab, search]);
+
+  const stats = {
+    total: applications.length,
     applied: applications.filter((item) => item.status === "Applied").length,
-    interview: applications.filter((item) => item.status === "Interview").length,
-    offer: applications.filter((item) => item.status === "Offer").length,
+    interviews: applications.filter((item) => item.status === "Interview").length,
+    offers: applications.filter((item) => item.status === "Offer").length,
   };
 
   return (
     <AppShell>
       <main className="min-h-screen bg-[#fafaf8] text-neutral-950 dark:bg-[#111110] dark:text-white">
         <div className="mx-auto w-full max-w-[1380px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <div className="space-y-6">
+      <div>
+        <p className="text-sm font-medium text-violet-600 dark:text-violet-400">
+          Your pipeline
+        </p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          Applications
+        </h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+          Track every opportunity you&apos;ve saved, applied to, and progressed.
+        </p>
+      </div>
 
-          <section className="border-b border-neutral-200 pb-6 dark:border-neutral-800">
-            <div className="flex items-center gap-2 text-xs text-neutral-400">
-              <span>Workspace</span>
-              <span>/</span>
-              <span className="text-neutral-700 dark:text-neutral-300">
-                Applications
-              </span>
-            </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat label="Total" value={stats.total} />
+        <Stat label="Applied" value={stats.applied} />
+        <Stat label="Interviews" value={stats.interviews} />
+        <Stat label="Offers" value={stats.offers} />
+      </div>
 
-            <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                  Application tracker
-                </h1>
-                <p className="mt-1.5 text-sm text-neutral-500 dark:text-neutral-400">
-                  Keep every opportunity and application moving forward.
-                </p>
-              </div>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex gap-1 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition ${
+                activeTab === tab
+                  ? "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950"
+                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-white"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
 
-              <button
-                type="button"
-                className="inline-flex h-10 w-fit items-center gap-2 rounded-lg bg-neutral-950 px-4 text-xs font-bold text-white transition hover:bg-neutral-800 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
-              >
-                <Plus className="h-4 w-4" />
-                Add application
-              </button>
-            </div>
-          </section>
+        <div className="relative w-full lg:w-72">
+          <Search
+            size={16}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"
+          />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search applications..."
+            className="h-10 w-full rounded-xl border border-neutral-200 bg-white pl-9 pr-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:focus:border-neutral-600"
+          />
+        </div>
+      </div>
 
-          <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              ["Saved", counts.saved],
-              ["Applied", counts.applied],
-              ["Interview", counts.interview],
-              ["Offers", counts.offer],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
-              >
-                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">
-                  {label}
-                </p>
-                <p className="mt-2 text-2xl font-bold">{value}</p>
-              </div>
-            ))}
-          </section>
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+          {error}
+        </div>
+      )}
 
-          <section className="mt-8">
-            <div className="flex flex-col gap-3 border-b border-neutral-200 pb-3 dark:border-neutral-800 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex gap-1 overflow-x-auto">
-                {statuses.map((status) => (
-                  <button
-                    key={status}
-                    type="button"
-                    onClick={() => setStatusFilter(status)}
-                    className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                      statusFilter === status
-                        ? "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950"
-                        : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-white"
-                    }`}
-                  >
-                    {status}
-                  </button>
-                ))}
-              </div>
+      {loading ? (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center text-sm text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900">
+          Loading your applications...
+        </div>
+      ) : !error && filteredApplications.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-14 text-center dark:border-neutral-700 dark:bg-neutral-900">
+          <BriefcaseBusiness className="mx-auto h-8 w-8 text-neutral-400" />
+          <h2 className="mt-4 text-base font-semibold">
+            {applications.length === 0
+              ? "No applications yet"
+              : "No matching applications"}
+          </h2>
+          <p className="mx-auto mt-1 max-w-md text-sm text-neutral-500 dark:text-neutral-400">
+            {applications.length === 0
+              ? "When you apply to an opportunity, it will appear here automatically."
+              : "Try another search or switch to a different application status."}
+          </p>
 
-              <button
-                type="button"
-                className="inline-flex h-9 items-center gap-2 self-start rounded-lg border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
-              >
-                <ArrowUpRight className="h-3.5 w-3.5" />
-                Export
-              </button>
-            </div>
-
-            <div className="mt-4 overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-
-              <div className="hidden grid-cols-[minmax(0,1fr)_110px_100px_120px_32px] items-center gap-4 border-b border-neutral-200 px-5 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400 dark:border-neutral-800 md:grid">
-                <span>Opportunity</span>
-                <span>Status</span>
-                <span>Match</span>
-                <span>Next step</span>
-                <span />
-              </div>
-
-              {filtered.map((application) => (
-                <div
-                  key={`${application.organization}-${application.title}`}
-                  className="grid gap-4 border-b border-neutral-100 px-4 py-4 last:border-0 dark:border-neutral-800 sm:px-5 md:grid-cols-[minmax(0,1fr)_110px_100px_120px_32px] md:items-center"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-start gap-3">
-                      <div className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 sm:flex dark:bg-neutral-800 dark:text-neutral-300">
-                        <BriefcaseBusiness className="h-4 w-4" />
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold">
-                          {application.title}
-                        </p>
-                        <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-                          {application.organization}
-                        </p>
-
-                        <div className="mt-2 flex items-center gap-2 text-[10px] text-neutral-400">
-                          <span>{application.type}</span>
-                          <span>·</span>
-                          <span className="inline-flex items-center gap-1">
-                            <CalendarDays className="h-3 w-3" />
-                            {application.date}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
+          {applications.length === 0 && (
+            <Link
+              href="/discover"
+              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-neutral-950 px-4 py-2.5 text-sm font-medium text-white dark:bg-white dark:text-neutral-950"
+            >
+              Discover opportunities
+              <ArrowUpRight size={15} />
+            </Link>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredApplications.map((application) => (
+            <article
+              key={application.id}
+              className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+            >
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`inline-flex rounded-md px-2 py-1 text-[10px] font-bold ${statusStyles[application.status]}`}
-                    >
-                      {application.status}
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="font-bold text-violet-600 dark:text-violet-400">
-                      {application.match}%
-                    </span>
-                  </div>
-
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                    {application.nextStep || "—"}
-                  </div>
-
-                  <button
-                    type="button"
-                    aria-label={`Open ${application.title}`}
-                    className="hidden rounded-md p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900 md:block dark:hover:bg-neutral-800 dark:hover:text-white"
-                  >
-                    <ArrowUpRight className="h-4 w-4" />
-                  </button>
-
-                  <div className="flex items-center justify-between md:hidden">
-                    <span
-                      className={`inline-flex rounded-md px-2 py-1 text-[10px] font-bold ${statusStyles[application.status]}`}
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusStyles[application.status]}`}
                     >
                       {application.status}
                     </span>
 
-                    <div className="flex items-center gap-3 text-xs">
-                      <span className="font-bold text-violet-600 dark:text-violet-400">
-                        {application.match}% match
+                    {application.match_score !== null && (
+                      <span className="text-xs font-medium text-neutral-500">
+                        {application.match_score}% match
                       </span>
-                      <button
-                        type="button"
-                        className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </button>
-                    </div>
+                    )}
+
+                    {application.source && (
+                      <span className="text-xs text-neutral-400">
+                        {application.source}
+                      </span>
+                    )}
+                  </div>
+
+                  <h2 className="mt-2 truncate text-base font-semibold">
+                    {application.title}
+                  </h2>
+
+                  <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+                    {application.company || "Unknown company"}
+                    {application.location
+                      ? ` · ${application.location}`
+                      : ""}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-neutral-500 dark:text-neutral-400">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock3 size={13} />
+                      Created {formatDate(application.created_at)}
+                    </span>
+
+                    {application.applied_at && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Check size={13} />
+                        Applied {formatDate(application.applied_at)}
+                      </span>
+                    )}
+
+                    {application.deadline && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <CalendarDays size={13} />
+                        Deadline {formatDate(application.deadline)}
+                      </span>
+                    )}
                   </div>
                 </div>
-              ))}
 
-              {filtered.length === 0 && (
-                <div className="px-6 py-16 text-center">
-                  <CheckCircle2 className="mx-auto h-7 w-7 text-neutral-300 dark:text-neutral-600" />
-                  <h3 className="mt-3 text-sm font-bold">
-                    Nothing here yet
-                  </h3>
-                  <p className="mt-1 text-xs text-neutral-400">
-                    Applications with this status will appear here.
-                  </p>
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <select
+                    value={application.status}
+                    disabled={updating === application.id}
+                    onChange={(event) =>
+                      updateApplication(application.id, {
+                        status: event.target.value as Application["status"],
+                        applied_at:
+                          event.target.value === "Applied" &&
+                          !application.applied_at
+                            ? new Date().toISOString()
+                            : application.applied_at,
+                      })
+                    }
+                    className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-medium outline-none dark:border-neutral-700 dark:bg-neutral-950"
+                  >
+                    {tabs
+                      .filter((tab) => tab !== "All")
+                      .map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                  </select>
+
+                  <Link
+                    href={`/opportunities/${encodeURIComponent(
+                      application.opportunity_id
+                    )}`}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-neutral-200 px-3 text-xs font-medium hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                  >
+                    View
+                    <ArrowUpRight size={13} />
+                  </Link>
+
+                  {application.url && (
+                    <a
+                      href={application.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-neutral-950 px-3 text-xs font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
+                    >
+                      Open
+                      <ArrowUpRight size={13} />
+                    </a>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={updating === application.id}
+                    onClick={() =>
+                      updateApplication(application.id, {
+                        status: "Rejected",
+                        next_step: "No further action",
+                      })
+                    }
+                    className="inline-flex h-9 items-center justify-center rounded-lg border border-neutral-200 px-2.5 text-neutral-400 hover:border-red-200 hover:text-red-600 dark:border-neutral-700"
+                    aria-label="Mark as rejected"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {application.next_step && (
+                <div className="mt-4 border-t border-neutral-100 pt-3 text-xs text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                  <span className="font-medium text-neutral-700 dark:text-neutral-300">
+                    Next step:
+                  </span>{" "}
+                  {application.next_step}
                 </div>
               )}
-            </div>
-          </section>
-
-          <section className="mt-5 flex items-center gap-2 text-[11px] text-neutral-400">
-            <Clock3 className="h-3.5 w-3.5" />
-            Keep your application status updated so your radar stays useful.
-          </section>
-
+            </article>
+          ))}
+        </div>
+      )}
+          </div>
         </div>
       </main>
     </AppShell>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <p className="text-xs font-medium text-neutral-500">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tracking-tight">{value}</p>
+    </div>
   );
 }

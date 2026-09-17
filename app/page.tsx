@@ -65,12 +65,12 @@ export default function Home() {
     <main className="min-h-screen overflow-hidden bg-[#111110] text-white">
       {/* NAV */}
       <nav className="relative z-20 border-b border-white/[0.07]">
-        <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-10">
-          <Link href="/" className="flex items-center gap-2.5">
+        <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between gap-3 px-5 sm:px-8 lg:px-10">
+          <Link href="/" className="flex min-w-0 items-center gap-2.5">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#171717] text-white">
               <Radar className="h-[18px] w-[18px]" />
             </span>
-            <span className="text-[15px] font-bold tracking-[-0.02em]">
+            <span className="truncate text-[15px] font-bold tracking-[-0.02em]">
               Opportunity Radar
             </span>
           </Link>
@@ -106,7 +106,7 @@ export default function Home() {
 
             <Link
               href="/signup"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[#171717] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#2a2a2a]"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#171717] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#2a2a2a]"
             >
               Get started
               <ArrowUpRight className="h-3.5 w-3.5" />
@@ -500,7 +500,7 @@ export default function Home() {
             </h2>
 
             <p className="mt-5 max-w-xl text-sm leading-6 text-white/45 sm:text-base">
-              Radar doesn't just throw opportunities at you. It gives you the
+              Radar doesn&apos;t just throw opportunities at you. It gives you the
               context to decide what deserves your attention.
             </p>
 

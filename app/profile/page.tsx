@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BriefcaseBusiness,
   Check,
@@ -14,38 +14,40 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { ProfileCvSection } from "@/components/profile/cv-section";
 import { createClient } from "@/lib/supabase/client";
-
-const initialSkills = [
-  "JavaScript",
-  "React",
-  "Next.js",
-  "TypeScript",
-  "HTML",
-  "CSS",
-  "Git",
-];
-
-const initialRoles = [
-  "Frontend Developer",
-  "Software Engineer",
-];
+import { calculateProfileStrength } from "@/lib/profile/strength";
 
 export default function ProfilePage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  const [fullName, setFullName] = useState("Junior");
-  const [location, setLocation] = useState("Nigeria");
-  const [experience, setExperience] = useState("Beginner");
-  const [skills, setSkills] = useState(initialSkills);
-  const [roles, setRoles] = useState(initialRoles);
-  const [workPreference, setWorkPreference] = useState("Remote");
+  const [fullName, setFullName] = useState("");
+  const [location, setLocation] = useState("");
+  const [experience, setExperience] = useState("");
+  const [skills, setSkills] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
+  const [workPreference, setWorkPreference] = useState("");
+  const [opportunityTypes, setOpportunityTypes] = useState<string[]>([]);
+  const [hasCv, setHasCv] = useState(false);
 
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [newSkill, setNewSkill] = useState("");
   const [newRole, setNewRole] = useState("");
+
+  const profileStrength = calculateProfileStrength({
+    full_name: fullName,
+    location,
+    experience,
+    skills,
+    preferred_roles: roles,
+    opportunity_types: opportunityTypes,
+    work_preference: workPreference,
+    has_cv: hasCv,
+  });
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -58,59 +60,56 @@ export default function ProfilePage() {
         return;
       }
 
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select(
-          "full_name, location, experience, skills, preferred_roles, work_preference",
+          "full_name, location, experience, skills, preferred_roles, opportunity_types, work_preference, cv_file_name, cv_storage_path",
         )
         .eq("id", user.id)
         .maybeSingle();
 
+      if (profileError) {
+        console.error("Profile lookup error:", profileError);
+        setLoadError("Unable to load your profile. Please try again.");
+        setLoading(false);
+        return;
+      }
+
       if (profile) {
         setFullName(
           profile.full_name ||
-            user.user_metadata?.full_name ||
-            user.email?.split("@")[0] ||
-            "Junior",
+            (typeof user.user_metadata?.full_name === "string"
+              ? user.user_metadata.full_name
+              : ""),
         );
-
-        setLocation(profile.location || "Nigeria");
-        setExperience(profile.experience || "Beginner");
-
-        setSkills(
-          profile.skills?.length
-            ? profile.skills
-            : initialSkills,
-        );
-
-        setRoles(
-          profile.preferred_roles?.length
-            ? profile.preferred_roles
-            : initialRoles,
-        );
-
-        setWorkPreference(
-          profile.work_preference || "Remote",
-        );
+        setLocation(profile.location ?? "");
+        setExperience(profile.experience ?? "");
+        setSkills(profile.skills ?? []);
+        setRoles(profile.preferred_roles ?? []);
+        setOpportunityTypes(profile.opportunity_types ?? []);
+        setWorkPreference(profile.work_preference ?? "");
+        setHasCv(Boolean(profile.cv_file_name && profile.cv_storage_path));
       }
 
       setLoading(false);
     };
 
     loadProfile();
-  }, []);
+  }, [supabase]);
 
   const saveProfile = async () => {
     if (saving) return;
 
     setSaving(true);
     setSaved(false);
+    setSaveError("");
 
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (!user) {
+      setSaveError("Please sign in to save your profile.");
       setSaving(false);
       return;
     }
@@ -118,8 +117,8 @@ export default function ProfilePage() {
     const { error } = await supabase
       .from("profiles")
       .update({
-        full_name: fullName.trim() || "Junior",
-        location: location.trim() || "Nigeria",
+        full_name: fullName.trim(),
+        location: location.trim(),
         experience,
         skills,
         preferred_roles: roles,
@@ -130,15 +129,18 @@ export default function ProfilePage() {
 
     if (error) {
       console.error("Profile update error:", error);
+      setSaveError("Unable to save your profile. Please try again.");
       setSaving(false);
       return;
     }
 
-    await supabase.auth.updateUser({
-      data: {
-        full_name: fullName.trim() || "Junior",
-      },
-    });
+    if (fullName.trim()) {
+      await supabase.auth.updateUser({
+        data: {
+          full_name: fullName.trim(),
+        },
+      });
+    }
 
     setSaved(true);
     setSaving(false);
@@ -242,7 +244,16 @@ export default function ProfilePage() {
             </div>
           </section>
 
-          <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
+          {(loadError || saveError) && (
+            <div
+              role="alert"
+              className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400"
+            >
+              {loadError || saveError}
+            </div>
+          )}
+
+          <section className="mt-6 w-full min-w-0 rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
               <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-white dark:bg-white dark:text-neutral-950">
                 <UserRound className="h-7 w-7" />
@@ -250,22 +261,26 @@ export default function ProfilePage() {
 
               <div className="min-w-0">
                 <h2 className="text-lg font-bold">
-                  {loading ? "Loading..." : fullName}
+                  {loading
+                    ? "Loading..."
+                    : fullName || "Name not set"}
                 </h2>
 
                 <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  {roles[0] || "Frontend Developer"}
+                  {roles[0] || "Role not set"}
                 </p>
 
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-400">
                   <span className="inline-flex items-center gap-1">
                     <MapPin className="h-3 w-3" />
-                    {location}
+                    {location || "Location not set"}
                   </span>
 
-                  <span>{experience}</span>
+                  <span>{experience || "Experience not set"}</span>
 
-                  <span>Open to opportunities</span>
+                  <span>
+                    {workPreference || "Work preference not set"}
+                  </span>
                 </div>
               </div>
 
@@ -278,11 +293,11 @@ export default function ProfilePage() {
             </div>
           </section>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="mt-6 grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
 
-            <div className="space-y-6">
+            <div className="min-w-0 space-y-6">
 
-              <section className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
+              <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
                 <div className="flex items-center gap-2">
                   <UserRound className="h-4 w-4 text-neutral-400" />
                   <h2 className="text-sm font-bold">
@@ -302,7 +317,7 @@ export default function ProfilePage() {
                       onChange={(e) =>
                         setFullName(e.target.value)
                       }
-                      className="mt-2 h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/10 dark:border-neutral-800 dark:bg-neutral-950"
+                      className="mt-2 h-10 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm transition placeholder:text-neutral-400 hover:border-neutral-300 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-950/10 dark:focus:border-neutral-400 dark:focus:ring-white/10 dark:border-neutral-800 dark:bg-neutral-950"
                     />
                   </label>
 
@@ -322,7 +337,7 @@ export default function ProfilePage() {
                             : [value],
                         );
                       }}
-                      className="mt-2 h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/10 dark:border-neutral-800 dark:bg-neutral-950"
+                      className="mt-2 h-10 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm transition placeholder:text-neutral-400 hover:border-neutral-300 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-950/10 dark:focus:border-neutral-400 dark:focus:ring-white/10 dark:border-neutral-800 dark:bg-neutral-950"
                     />
                   </label>
 
@@ -336,7 +351,7 @@ export default function ProfilePage() {
                       onChange={(e) =>
                         setLocation(e.target.value)
                       }
-                      className="mt-2 h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/10 dark:border-neutral-800 dark:bg-neutral-950"
+                      className="mt-2 h-10 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm transition placeholder:text-neutral-400 hover:border-neutral-300 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-950/10 dark:focus:border-neutral-400 dark:focus:ring-white/10 dark:border-neutral-800 dark:bg-neutral-950"
                     />
                   </label>
 
@@ -350,8 +365,10 @@ export default function ProfilePage() {
                       onChange={(e) =>
                         setExperience(e.target.value)
                       }
-                      className="mt-2 h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none dark:border-neutral-800 dark:bg-neutral-950"
+                      className="mt-2 h-10 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm transition placeholder:text-neutral-400 hover:border-neutral-300 outline-none dark:border-neutral-800 dark:bg-neutral-950"
                     >
+                      <option value="">Select experience</option>
+                      <option>Student</option>
                       <option>Beginner</option>
                       <option>Entry Level</option>
                       <option>Junior</option>
@@ -363,7 +380,12 @@ export default function ProfilePage() {
                 </div>
               </section>
 
-              <section className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
+              <ProfileCvSection
+                supabase={supabase}
+                onCvChange={setHasCv}
+              />
+
+              <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
                 <div className="flex items-center gap-2">
                   <BriefcaseBusiness className="h-4 w-4 text-neutral-400" />
                   <h2 className="text-sm font-bold">
@@ -383,7 +405,7 @@ export default function ProfilePage() {
                         key={role}
                         type="button"
                         onClick={() => removeRole(role)}
-                        className="rounded-lg bg-violet-50 px-3 py-2 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/10 dark:text-violet-400"
+                        className="rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-2 text-[11px] font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-200 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
                       >
                         {role} ×
                       </button>
@@ -402,13 +424,13 @@ export default function ProfilePage() {
                           }
                         }}
                         placeholder="New role"
-                        className="h-9 w-28 rounded-lg border border-neutral-200 bg-white px-2.5 text-[11px] outline-none focus:border-violet-400 dark:border-neutral-800 dark:bg-neutral-950"
+                        className="h-9 w-28 rounded-xl border border-neutral-200 bg-white px-2.5 text-[11px] transition placeholder:text-neutral-400 hover:border-neutral-300 outline-none focus:border-neutral-500 dark:focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-950"
                       />
 
                       <button
                         type="button"
                         onClick={addRole}
-                        className="inline-flex items-center gap-1 rounded-lg border border-dashed border-neutral-300 px-3 py-2 text-[11px] font-semibold text-neutral-500 hover:border-neutral-400 dark:border-neutral-700"
+                        className="inline-flex items-center gap-1 rounded-xl border border-dashed border-neutral-300 transition hover:border-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:border-neutral-500 dark:hover:bg-neutral-900 px-3 py-2 text-[11px] font-semibold text-neutral-500 hover:border-neutral-400 dark:border-neutral-700"
                       >
                         <Plus className="h-3 w-3" />
                         Add role
@@ -424,7 +446,7 @@ export default function ProfilePage() {
                   </p>
 
                   <div className="mt-3 grid grid-cols-3 gap-2">
-                    {["Remote", "Hybrid", "On-site"].map((item) => (
+                    {["Remote", "Hybrid", "On-site", "Any"].map((item) => (
                       <button
                         key={item}
                         type="button"
@@ -433,8 +455,8 @@ export default function ProfilePage() {
                         }
                         className={`rounded-lg border px-3 py-2.5 text-xs font-semibold transition ${
                           workPreference === item
-                            ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-400"
-                            : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-800"
+                            ? "border-neutral-950 bg-neutral-950 text-white dark:border-white dark:bg-white dark:text-neutral-950"
+                            : "border-neutral-200 bg-white text-neutral-500 hover:border-neutral-400 hover:text-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:border-neutral-700 dark:hover:text-white"
                         }`}
                       >
                         {item}
@@ -444,7 +466,7 @@ export default function ProfilePage() {
                 </div>
               </section>
 
-              <section className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
+              <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
                 <div className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-neutral-400" />
                   <h2 className="text-sm font-bold">
@@ -459,7 +481,7 @@ export default function ProfilePage() {
                       key={skill}
                       type="button"
                       onClick={() => removeSkill(skill)}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-100 px-3 py-2 text-[11px] font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-200 bg-neutral-100 px-3 py-2 text-[11px] font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-200 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
                     >
                       {skill}
                       <span className="text-neutral-400">
@@ -481,13 +503,13 @@ export default function ProfilePage() {
                         }
                       }}
                       placeholder="New skill"
-                      className="h-9 w-28 rounded-lg border border-neutral-200 bg-white px-2.5 text-[11px] outline-none focus:border-violet-400 dark:border-neutral-800 dark:bg-neutral-950"
+                      className="h-9 w-28 rounded-xl border border-neutral-200 bg-white px-2.5 text-[11px] transition placeholder:text-neutral-400 hover:border-neutral-300 outline-none focus:border-neutral-500 dark:focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-950"
                     />
 
                     <button
                       type="button"
                       onClick={addSkill}
-                      className="inline-flex items-center gap-1 rounded-lg border border-dashed border-neutral-300 px-3 py-2 text-[11px] font-semibold text-neutral-500 dark:border-neutral-700"
+                      className="inline-flex items-center gap-1 rounded-xl border border-dashed border-neutral-300 transition hover:border-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:border-neutral-500 dark:hover:bg-neutral-900 px-3 py-2 text-[11px] font-semibold text-neutral-500 dark:border-neutral-700"
                     >
                       <Plus className="h-3 w-3" />
                       Add skill
@@ -497,7 +519,7 @@ export default function ProfilePage() {
                 </div>
               </section>
 
-              <section className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
+              <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
                 <div className="flex items-center gap-2">
                   <GraduationCap className="h-4 w-4 text-neutral-400" />
                   <h2 className="text-sm font-bold">
@@ -507,7 +529,7 @@ export default function ProfilePage() {
 
                 <div className="mt-5 space-y-3">
 
-                  <div className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-4 transition hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-950/40 dark:hover:border-neutral-700">
                     <p className="text-xs font-bold">
                       Education
                     </p>
@@ -517,7 +539,7 @@ export default function ProfilePage() {
                     </p>
                   </div>
 
-                  <div className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-4 transition hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-950/40 dark:hover:border-neutral-700">
                     <p className="text-xs font-bold">
                       Experience
                     </p>
@@ -536,7 +558,7 @@ export default function ProfilePage() {
 
             </div>
 
-            <aside className="space-y-6">
+            <aside className="min-w-0 space-y-6">
 
               <section className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
                 <p className="text-xs font-semibold text-neutral-500">
@@ -545,17 +567,7 @@ export default function ProfilePage() {
 
                 <div className="mt-3 flex items-end justify-between">
                   <span className="text-2xl font-bold">
-                    {Math.min(
-                      100,
-                      35 +
-                        (fullName ? 10 : 0) +
-                        (location ? 10 : 0) +
-                        (experience ? 10 : 0) +
-                        Math.min(skills.length * 3, 15) +
-                        Math.min(roles.length * 5, 10) +
-                        (workPreference ? 10 : 0),
-                    )}
-                    %
+                    {profileStrength}%
                   </span>
 
                   <span className="text-[11px] text-neutral-400">
@@ -567,16 +579,7 @@ export default function ProfilePage() {
                   <div
                     className="h-full rounded-full bg-neutral-950 transition-all dark:bg-white"
                     style={{
-                      width: `${Math.min(
-                        100,
-                        35 +
-                          (fullName ? 10 : 0) +
-                                                    (location ? 10 : 0) +
-                          (experience ? 10 : 0) +
-                          Math.min(skills.length * 3, 15) +
-                          Math.min(roles.length * 5, 10) +
-                          (workPreference ? 10 : 0),
-                      )}%`,
+                      width: `${profileStrength}%`,
                     }}
                   />
                 </div>
