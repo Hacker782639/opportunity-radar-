@@ -81,14 +81,11 @@ export async function POST(request: Request) {
       }
     }
 
-    const selectColumns =
-      mode === "cv"
-        ? "cv_file_name, cv_storage_path"
-        : "experience, skills, preferred_roles, work_preference, location, cv_file_name, cv_storage_path";
-
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select(selectColumns)
+      .select(
+        "experience, skills, preferred_roles, work_preference, location, cv_file_name, cv_storage_path",
+      )
       .eq("id", user.id)
       .maybeSingle();
 

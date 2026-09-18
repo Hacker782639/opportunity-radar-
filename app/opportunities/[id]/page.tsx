@@ -51,6 +51,7 @@ function getSavedJob(record: SavedOpportunityRecord): Job | null {
   return {
     id: record.opportunity_id,
     title: record.title,
+    company: record.company || "Company not listed",
     location: record.location || "Location not listed",
     remote: record.remote ?? false,
     experience: record.experience || "Not listed",
@@ -68,6 +69,7 @@ function getAppliedJob(record: ApplicationRecord): Job | null {
   return {
     id: record.opportunity_id,
     title: record.title,
+    company: record.company || "Company not listed",
     location: record.location || "Location not listed",
     remote: false,
     experience: "Not listed",
@@ -109,14 +111,25 @@ export default async function OpportunityPage({
         .maybeSingle(),
     ]);
 
-    job =
-      (savedResult.data ? getSavedJob(savedResult.data) : null) ??
-      (applicationResult.data ? getAppliedJob(applicationResult.data) : null);
+    const savedJob = savedResult.data
+      ? getSavedJob(savedResult.data)
+      : null;
+    const appliedJob = applicationResult.data
+      ? getAppliedJob(applicationResult.data)
+      : null;
+
+    const fallbackJob = savedJob ?? appliedJob;
+
+    if (fallbackJob) {
+      job = fallbackJob;
+    }
   }
 
   if (!job) {
     notFound();
   }
+
+  const resolvedJob: Job = job;
 
   let initialMatch: MatchResult | null = null;
 
@@ -139,13 +152,13 @@ export default async function OpportunityPage({
     };
 
     if (hasMatchingProfileData(matchingProfile)) {
-      initialMatch = getJobMatch(job, matchingProfile);
+      initialMatch = getJobMatch(resolvedJob, matchingProfile);
     }
   }
 
   return (
     <OpportunityDetail
-      initialJob={job}
+      initialJob={resolvedJob}
       initialMatch={initialMatch}
       opportunityId={opportunityId}
     />
