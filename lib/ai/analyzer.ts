@@ -1,4 +1,4 @@
-import { runAgentRouter } from "./agentrouter";
+import { runGemini, type GeminiMessage } from "./gemini";
 
 export type AnalyzerMode = "cv" | "opportunity";
 
@@ -25,11 +25,6 @@ export type OpportunityAnalyzerResult = {
   whatToHighlight: string[];
   recommendedAction: "Apply" | "Apply with caution" | "Improve first";
   readiness: "Ready to apply" | "Partially ready" | "Needs preparation";
-};
-
-type AgentRouterMessage = {
-  role: "system" | "user";
-  content: string;
 };
 
 function cleanJson(text: string) {
@@ -122,10 +117,10 @@ function normalizeOpportunityResult(
 }
 
 async function runAnalyzer(
-  messages: AgentRouterMessage[],
+  messages: GeminiMessage[],
   maxTokens: number,
 ) {
-  const response = await runAgentRouter(messages, {
+  const response = await runGemini(messages, {
     temperature: 0.1,
     maxTokens,
   });
@@ -133,7 +128,7 @@ async function runAnalyzer(
   try {
     return JSON.parse(cleanJson(response));
   } catch {
-    console.error("AgentRouter returned invalid analyzer JSON");
+    console.error("Gemini returned invalid analyzer JSON");
     throw new Error("AI returned an invalid analysis");
   }
 }

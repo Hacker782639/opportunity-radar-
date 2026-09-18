@@ -1,5 +1,10 @@
 import type { Job } from "../types";
-import { extractDeadline, fetchWithTimeout, mapValidJobs } from "./utils";
+import {
+  extractDeadline,
+  fetchWithTimeout,
+  mapValidJobs,
+  slugifyIdPart,
+} from "./utils";
 
 type JobicyJob = {
   id?: number | string;
@@ -125,7 +130,9 @@ export async function getJobicyJobs(search = ""): Promise<Job[]> {
     }
 
     return {
-      id: `jobicy-${job.id ?? job.jobSlug ?? job.url}`,
+      id: `jobicy-${slugifyIdPart(
+        String(job.id ?? job.jobSlug ?? job.url),
+      )}`,
       title: job.jobTitle,
       company: job.companyName,
       category: industry || type || undefined,

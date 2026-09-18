@@ -1,6 +1,11 @@
 import Parser from "rss-parser";
 import type { Job } from "../types";
-import { extractDeadline, fetchWithTimeout, mapValidJobs } from "./utils";
+import {
+  extractDeadline,
+  fetchWithTimeout,
+  mapValidJobs,
+  slugifyIdPart,
+} from "./utils";
 
 const parser = new Parser();
 
@@ -50,7 +55,7 @@ export async function getWeWorkRemotelyJobs(
     }
 
     return {
-      id: `wwr-${item.guid ?? item.link}`,
+      id: `wwr-${slugifyIdPart(item.guid ?? item.link)}`,
       title,
       company,
       category: item.categories?.[0],

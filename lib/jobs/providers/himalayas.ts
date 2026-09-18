@@ -1,28 +1,24 @@
 import type { Job } from "../types";
-import { extractDeadline, fetchWithTimeout, mapValidJobs } from "./utils";
-
-type HimalayasJob = {
-  title?: string;
-  excerpt?: string;
-  companyName?: string;
-  employmentType?: string;
-  minSalary?: number | null;
-  maxSalary?: number | null;
-  salaryPeriod?: string;
-  currency?: string;
-  seniority?: string[];
-  locationRestrictions?: string[];
-  categories?: string[];
-  parentCategories?: string[];
-  description?: string;
-  pubDate?: number;
-  applicationLink?: string;
-  guid?: string;
-};
+import {
+  extractDeadline,
+  fetchWithTimeout,
+  formatSalaryRange,
+  mapValidJobs,
+  slugifyIdPart,
+  toIsoDate,
+  toStringArray,
+  toTrimmedString,
+} from "./utils";
 
 type HimalayasResponse = {
-  jobs?: HimalayasJob[];
+  jobs?: unknown;
 };
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
 function extractSkills(text: string): string[] {
   const known = [
@@ -58,14 +54,14 @@ function extractSkills(text: string): string[] {
   return known.filter((skill) => lower.includes(skill));
 }
 
-export async function getHimalayasJobs(search = ""): Promise<Job[]> {
+async function fetchHimalayasItems(query: string): Promise<unknown[]> {
   const url = new URL("https://himalayas.app/jobs/api/search");
 
   url.searchParams.set("page", "1");
   url.searchParams.set("sort", "recent");
 
-  if (search.trim()) {
-    url.searchParams.set("q", search.trim());
+  if (query) {
+    url.searchParams.set("q", query);
   }
 
   const response = await fetchWithTimeout(url.toString(), {
@@ -81,41 +77,58 @@ export async function getHimalayasJobs(search = ""): Promise<Job[]> {
     throw new Error(`Himalayas returned ${response.status}`);
   }
 
-  const data = (await response.json()) as HimalayasResponse;
+  const text = await response.text();
+
+  if (!text.trim()) {
+    throw new Error("Himalayas returned an empty response");
+  }
+
+  let data: HimalayasResponse;
+
+  try {
+    data = JSON.parse(text) as HimalayasResponse;
+  } catch {
+    throw new Error("Himalayas returned an invalid response");
+  }
+
+  return Array.isArray(data.jobs) ? data.jobs : [];
+}
+
+function mapHimalayasJobs(items: unknown[], search: string): Job[] {
   const query = search.trim().toLowerCase();
 
-  return mapValidJobs(data.jobs ?? [], (job) => {
-    if (!job.title || !job.applicationLink || !job.companyName) return null;
+  return mapValidJobs(items, (raw) => {
+    const job = asRecord(raw);
 
-    let salary: string | undefined;
+    const title = toTrimmedString(job.title);
+    const company = toTrimmedString(job.companyName);
+    const applicationLink = toTrimmedString(job.applicationLink);
+    const guid = toTrimmedString(job.guid);
+    const listingUrl = applicationLink ?? guid;
 
-    if (job.minSalary || job.maxSalary) {
-      const currency = job.currency || "USD";
-      const period = job.salaryPeriod || "annual";
+    if (!title || !company || !listingUrl) return null;
 
-      if (job.minSalary && job.maxSalary) {
-        salary = `${currency} ${job.minSalary.toLocaleString()}–${job.maxSalary.toLocaleString()} / ${period}`;
-      } else if (job.minSalary) {
-        salary = `${currency} ${job.minSalary.toLocaleString()}+ / ${period}`;
-      } else if (job.maxSalary) {
-        salary = `${currency} up to ${job.maxSalary.toLocaleString()} / ${period}`;
-      }
-    }
-
-    const location =
-      job.locationRestrictions && job.locationRestrictions.length > 0
-        ? job.locationRestrictions.join(", ")
-        : "Worldwide";
+    const categories = toStringArray(job.categories);
+    const parentCategories = toStringArray(job.parentCategories);
+    const seniority = toStringArray(job.seniority);
+    const locationRestrictions = toStringArray(job.locationRestrictions);
+    const employmentType = toTrimmedString(job.employmentType);
+    const excerpt = toTrimmedString(job.excerpt);
+    const description = toTrimmedString(job.description);
+    const fullDescription = description ?? excerpt;
 
     const fullText = [
-      job.title,
-      job.companyName,
-      job.excerpt,
-      job.description,
-      ...(job.categories ?? []),
-      ...(job.parentCategories ?? []),
+      title,
+      company,
+      excerpt,
+      description,
+      employmentType,
+      ...categories,
+      ...parentCategories,
+      ...seniority,
+      ...locationRestrictions,
     ]
-      .filter(Boolean)
+      .filter((value): value is string => Boolean(value))
       .join(" ");
 
     if (query) {
@@ -124,28 +137,57 @@ export async function getHimalayasJobs(search = ""): Promise<Job[]> {
       if (!text.includes(query)) return null;
     }
 
-    const publishedDate = job.pubDate
-      ? new Date(job.pubDate * 1000)
-      : undefined;
+    const location =
+      locationRestrictions.length > 0
+        ? locationRestrictions.join(", ")
+        : "Worldwide";
+    const salary = formatSalaryRange(job.minSalary, job.maxSalary, {
+      currency: toTrimmedString(job.currency) ?? "USD",
+      period: toTrimmedString(job.salaryPeriod) ?? "annual",
+    });
+    const publishedAt = toIsoDate(job.pubDate);
+    const deadline =
+      toIsoDate(job.expiryDate) ?? extractDeadline(fullDescription);
+
+    // The API exposes a stable guid (the canonical listing URL). Slugifying
+    // it keeps the /opportunities/[id] route segment URL-safe and stable.
+    const identity = guid ?? listingUrl;
 
     return {
-      id: `himalayas-${job.guid ?? job.applicationLink}`,
-      title: job.title,
-      company: job.companyName,
-      category: job.categories?.[0] || job.parentCategories?.[0],
+      id: `himalayas-${slugifyIdPart(identity)}`,
+      title,
+      company,
+      category: categories[0] ?? parentCategories[0] ?? employmentType,
       location,
       remote: true,
-      experience: job.seniority?.join(", ") || "Open",
+      experience: seniority.length > 0 ? seniority.join(", ") : "Open",
       salary,
-      url: job.applicationLink,
+      url: listingUrl,
       source: "Himalayas",
-      publishedAt:
-        publishedDate && !Number.isNaN(publishedDate.getTime())
-          ? publishedDate.toISOString()
-          : undefined,
-      deadline: extractDeadline(job.description || job.excerpt),
+      publishedAt,
+      deadline,
       skills: extractSkills(fullText),
-      description: job.description || job.excerpt || undefined,
+      description: fullDescription,
     };
   });
+}
+
+export async function getHimalayasJobs(search = ""): Promise<Job[]> {
+  const query = search.trim();
+
+  try {
+    return mapHimalayasJobs(await fetchHimalayasItems(query), search);
+  } catch (error) {
+    if (!query) throw error;
+
+    // The search endpoint can be slow or return an empty body under load.
+    // Fall back to the recent feed and filter it locally instead of dropping
+    // the whole provider for this request.
+    console.error(
+      "[Opportunity Radar] Himalayas search failed; using recent feed:",
+      error,
+    );
+
+    return mapHimalayasJobs(await fetchHimalayasItems(""), search);
+  }
 }

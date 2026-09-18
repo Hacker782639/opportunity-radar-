@@ -62,12 +62,6 @@ type OpportunityDetailProps = {
   opportunityId: string;
 };
 
-type ExternalListingDialog = {
-  open: boolean;
-  checking: boolean;
-  warning: string | null;
-};
-
 export function OpportunityDetail({
   initialJob,
   initialMatch,
@@ -85,11 +79,7 @@ export function OpportunityDetail({
     CvAnalyzerResult | OpportunityAnalyzerResult | null
   >(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [externalListing, setExternalListing] = useState<ExternalListingDialog>({
-    open: false,
-    checking: false,
-    warning: null,
-  });
+  const [externalListingOpen, setExternalListingOpen] = useState(false);
   const opportunity = {
     title: job.title,
     organization: job.company,
@@ -221,49 +211,8 @@ export function OpportunityDetail({
     }
   };
 
-  const isJobicyListing = job.source.trim().toLowerCase() === "jobicy";
-
-  const checkJobicyListing = async () => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    setExternalListing({
-      open: true,
-      checking: true,
-      warning: null,
-    });
-
-    try {
-      await fetch(job.url, {
-        method: "HEAD",
-        mode: "no-cors",
-        cache: "no-store",
-        signal: controller.signal,
-      });
-    } catch {
-      setExternalListing({
-        open: true,
-        checking: false,
-        warning:
-          "We couldn't reach this Jobicy listing from your browser. The external source may currently be unavailable.",
-      });
-      return;
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    setExternalListing({
-      open: true,
-      checking: false,
-      warning: null,
-    });
-  };
-
   const closeExternalListing = () => {
-    setExternalListing((current) => ({
-      ...current,
-      open: false,
-    }));
+    setExternalListingOpen(false);
   };
 
   return (
@@ -660,31 +609,19 @@ export function OpportunityDetail({
                 </div>
               </section>
 
-              {isJobicyListing ? (
-                <button
-                  type="button"
-                  onClick={() => void checkJobicyListing()}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-xs font-bold text-neutral-700 transition hover:border-neutral-300 hover:text-neutral-950 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:text-white"
-                >
-                  Open original listing
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </button>
-              ) : (
-                <a
-                  href={job?.url || "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-xs font-bold text-neutral-700 transition hover:border-neutral-300 hover:text-neutral-950 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:text-white"
-                >
-                  Open original listing
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              )}
+              <button
+                type="button"
+                onClick={() => setExternalListingOpen(true)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-xs font-bold text-neutral-700 transition hover:border-neutral-300 hover:text-neutral-950 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:text-white"
+              >
+                Open original listing
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
             </aside>
 
           </div>
 
-          {externalListing.open ? (
+          {externalListingOpen ? (
             <div
               role="dialog"
               aria-modal="true"
@@ -701,7 +638,7 @@ export function OpportunityDetail({
                       id="external-listing-title"
                       className="mt-2 text-sm font-bold"
                     >
-                      Continue to Jobicy
+                      Continue to {job.source}
                     </h2>
                   </div>
 
@@ -716,31 +653,21 @@ export function OpportunityDetail({
                 </div>
 
                 <p className="mt-3 text-xs leading-5 text-neutral-600 dark:text-neutral-300">
-                  You are leaving Opportunity Radar. The original Jobicy listing
-                  will open in a new tab.
+                  Opportunity Radar already has the full details for this
+                  opportunity. The original {job.source} listing opens in a new
+                  tab only when you choose to continue.
                 </p>
 
-                {externalListing.checking ? (
-                  <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-700 dark:border-neutral-700 dark:border-t-neutral-200" />
-                    Checking the external listing...
-                  </div>
-                ) : null}
-
-                {externalListing.warning ? (
-                  <div
-                    role="alert"
-                    className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-950"
-                  >
-                    <p className="text-xs leading-5 text-neutral-700 dark:text-neutral-300">
-                      {externalListing.warning}
-                    </p>
-                    <p className="mt-1 text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">
-                      The original link is preserved. You can still try it or
-                      return later.
-                    </p>
-                  </div>
-                ) : null}
+                <div
+                  role="note"
+                  className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-950"
+                >
+                  <p className="text-xs leading-5 text-neutral-700 dark:text-neutral-300">
+                    If the external site does not load, it may be unavailable
+                    from your current network. This opportunity, your match
+                    details, and your saved information remain available here.
+                  </p>
+                </div>
 
                 <div className="mt-5 flex gap-2">
                   <button

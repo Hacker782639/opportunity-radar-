@@ -6,7 +6,7 @@ import {
   type MatchResult,
   type MatchingProfile,
 } from "@/lib/jobs/matching";
-import { getJobById } from "@/lib/jobs/providers";
+import { lookupJobById } from "@/lib/jobs/providers";
 import type { Job } from "@/lib/jobs/types";
 
 import { OpportunityDetail } from "./opportunity-detail";
@@ -85,13 +85,13 @@ export default async function OpportunityPage({
   params: Promise<{ id: string }>;
 }) {
   const { id: opportunityId } = await params;
-  const liveJob = await getJobById(opportunityId);
+  const lookup = await lookupJobById(opportunityId);
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  let job = liveJob;
+  let job = lookup.status === "found" ? lookup.job : null;
 
   if (!job && user) {
     const [savedResult, applicationResult] = await Promise.all([
@@ -126,6 +126,17 @@ export default async function OpportunityPage({
   }
 
   if (!job) {
+    /*
+     * A provider outage must not turn a valid opportunity into a 404. The
+     * route's error boundary shows the retryable "Unable to load opportunity"
+     * state instead. A genuine miss still returns 404.
+     */
+    if (lookup.status === "unavailable") {
+      throw new Error(
+        "This opportunity's source is temporarily unavailable.",
+      );
+    }
+
     notFound();
   }
 

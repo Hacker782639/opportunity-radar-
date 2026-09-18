@@ -1,5 +1,10 @@
 import type { Job } from "../types";
-import { extractDeadline, fetchWithTimeout, mapValidJobs } from "./utils";
+import {
+  extractDeadline,
+  fetchWithTimeout,
+  mapValidJobs,
+  slugifyIdPart,
+} from "./utils";
 
 type RemoteLandersJob = {
   slug?: string;
@@ -141,7 +146,7 @@ export async function getRemoteLandersJobs(
     }
 
     return {
-      id: `remotelanders-${job.slug ?? job.url}`,
+      id: `remotelanders-${slugifyIdPart(job.slug ?? job.url ?? "")}`,
       title: job.title,
       company: job.company,
       category: job.category || job.type || undefined,
