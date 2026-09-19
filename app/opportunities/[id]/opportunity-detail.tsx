@@ -96,6 +96,7 @@ export function OpportunityDetail({
   const skills = initialMatch
     ? [...initialMatch.matchedSkills, ...initialMatch.missingSkills]
     : job.skills;
+  const isJobicyListing = job.source.trim().toLowerCase() === "jobicy";
 
   useEffect(() => {
     const loadState = async () => {
@@ -662,11 +663,17 @@ export function OpportunityDetail({
                   role="note"
                   className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-950"
                 >
-                  <p className="text-xs leading-5 text-neutral-700 dark:text-neutral-300">
-                    If the external site does not load, it may be unavailable
-                    from your current network. This opportunity, your match
-                    details, and your saved information remain available here.
-                  </p>
+                  {isJobicyListing ? (
+                    <p className="text-xs leading-5 text-neutral-700 dark:text-neutral-300">
+                      If Jobicy is unreachable on your network, try a VPN
+                    </p>
+                  ) : (
+                    <p className="text-xs leading-5 text-neutral-700 dark:text-neutral-300">
+                      If the external site does not load, it may be unavailable
+                      from your current network. This opportunity, your match
+                      details, and your saved information remain available here.
+                    </p>
+                  )}
                 </div>
 
                 <div className="mt-5 flex gap-2">
