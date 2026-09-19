@@ -5,6 +5,7 @@ import { getJobicyJobs } from "./jobicy";
 import { getHimalayasJobs } from "./himalayas";
 import { getRemoteLandersJobs } from "./remotelanders";
 import { getMicro1JobDetails, getMicro1Jobs } from "./micro1";
+import { getRemoteOkJobs } from "./remoteok";
 import { isValidJob } from "./utils";
 
 type ProviderResult = {
@@ -49,6 +50,7 @@ const providers: ProviderLoader[] = [
     source: "Remote Landers",
     load: getRemoteLandersJobs,
   },
+  { prefix: "remoteok-", source: "Remote OK", load: getRemoteOkJobs },
 ];
 
 function rememberJobs(jobs: Job[]) {
