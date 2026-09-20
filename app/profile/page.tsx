@@ -237,7 +237,7 @@ export default function ProfilePage() {
             <div className="h-24 bg-neutral-950 dark:bg-neutral-800" />
 
             <div className="px-5 pb-6 sm:px-7">
-              <div className="-mt-9 flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="-mt-9 flex flex-col gap-4 sm:-mt-10 sm:flex-row sm:items-end sm:gap-5">
                 <div className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-2xl border-4 border-white bg-neutral-100 text-neutral-700 shadow-sm dark:border-neutral-900 dark:bg-neutral-800 dark:text-white">
                   <UserRound className="h-8 w-8" />
                 </div>
@@ -251,7 +251,7 @@ export default function ProfilePage() {
                   </p>
                 </div>
 
-                <div className="flex flex-wrap gap-2 sm:ml-auto sm:pb-1">
+                <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto sm:justify-end sm:pb-1">
                   {location && (
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-3 py-1.5 text-[11px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
                       <MapPin className="h-3 w-3" />
@@ -273,7 +273,7 @@ export default function ProfilePage() {
             </div>
           </section>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="mt-6 grid min-w-0 gap-5 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
 
             <div className="space-y-6">
 
@@ -285,7 +285,7 @@ export default function ProfilePage() {
                   </p>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                   <label>
                     <span className="text-xs font-semibold">Full name</span>
                     <input
@@ -440,7 +440,7 @@ export default function ProfilePage() {
               <section className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900 sm:p-6">
                 <h2 className="text-sm font-bold">Education & experience</h2>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2">
                   <div className="rounded-xl bg-neutral-50 p-4 dark:bg-neutral-950">
                     <GraduationCap className="h-4 w-4 text-neutral-400" />
                     <p className="mt-3 text-xs font-bold">Education</p>
