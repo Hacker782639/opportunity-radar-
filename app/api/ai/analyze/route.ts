@@ -6,6 +6,7 @@ import {
   type AnalyzerMode,
 } from "@/lib/ai/analyzer";
 import { extractCvText } from "@/lib/ai/cv-extractor";
+import { CV_BUCKET, isUserScopedCvPath } from "@/lib/cv/client";
 
 export const dynamic = "force-dynamic";
 
@@ -32,17 +33,6 @@ function isAnalyzerMode(value: unknown): value is AnalyzerMode {
 
 function hasText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
-}
-
-function isUserScopedCvPath(userId: string, storagePath: string) {
-  const segments = storagePath.split("/");
-
-  return (
-    segments.length === 3 &&
-    segments[0] === userId &&
-    segments[1] === "cv" &&
-    segments.every((segment) => segment && segment !== "." && segment !== "..")
-  );
 }
 
 export async function POST(request: Request) {
@@ -110,8 +100,9 @@ export async function POST(request: Request) {
         );
       }
 
-      const { data: cvFile, error: downloadError } =
-        await supabase.storage.from("cv-resumes").download(ownedPath);
+      const { data: cvFile, error: downloadError } = await supabase.storage
+        .from(CV_BUCKET)
+        .download(ownedPath);
 
       if (downloadError) {
         console.error("CV download failed:", downloadError.message);
@@ -132,10 +123,15 @@ export async function POST(request: Request) {
           error instanceof Error ? error.message : "Unknown error",
         );
 
-        return NextResponse.json(
-          { error: "Unable to extract readable text from your CV" },
-          { status: 422 },
-        );
+        if (mode === "cv") {
+          return NextResponse.json(
+            { error: "Unable to extract readable text from your CV" },
+            { status: 422 },
+          );
+        }
+
+        // Opportunity analysis can still run from the profile when the stored
+        // CV cannot be read (for example an image-based or scanned PDF).
       }
     } else if (mode === "cv") {
       return NextResponse.json(

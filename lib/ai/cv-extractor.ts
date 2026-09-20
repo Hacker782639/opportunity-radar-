@@ -3,20 +3,67 @@ import mammoth from "mammoth";
 const MAX_CV_BYTES = 10 * 1024 * 1024;
 const MAX_CV_TEXT = 30000;
 
-type PdfParseModule = typeof import("pdf-parse");
+type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
-let pdfParseModulePromise: Promise<PdfParseModule> | null = null;
+let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
 
-async function loadPdfParse() {
-  pdfParseModulePromise ??= import("pdf-parse");
+function loadPdfJs() {
+  pdfJsModulePromise ??= import("pdfjs-dist/legacy/build/pdf.mjs");
 
-  const pdfModule = await pdfParseModulePromise;
+  return pdfJsModulePromise;
+}
 
-  if (typeof pdfModule.PDFParse !== "function") {
-    throw new Error("PDF parser is unavailable");
+type PdfTextItem = {
+  str: string;
+  hasEOL?: boolean;
+};
+
+function isPdfTextItem(item: unknown): item is PdfTextItem {
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    "str" in item &&
+    typeof item.str === "string"
+  );
+}
+
+async function extractPdfText(buffer: Buffer) {
+  const { getDocument } = await loadPdfJs();
+  const loadingTask = getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+
+  try {
+    const pages: string[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+      const page = await pdf.getPage(pageNumber);
+
+      try {
+        const content = await page.getTextContent();
+        let pageText = "";
+
+        for (const item of content.items) {
+          if (!isPdfTextItem(item)) continue;
+
+          pageText += item.str;
+
+          if (item.hasEOL) {
+            pageText += "\n";
+          }
+        }
+
+        if (pageText.trim()) {
+          pages.push(pageText);
+        }
+      } finally {
+        page.cleanup();
+      }
+    }
+
+    return pages.join("\n\n");
+  } finally {
+    await loadingTask.destroy();
   }
-
-  return pdfModule.PDFParse;
 }
 
 export async function extractCvText(
@@ -34,19 +81,10 @@ export async function extractCvText(
   }
 
   const extension = fileName.toLowerCase().split(".").pop();
-
   let text = "";
 
   if (extension === "pdf") {
-    const PDFParse = await loadPdfParse();
-    const parser = new PDFParse({ data: buffer });
-
-    try {
-      const result = await parser.getText();
-      text = result.text;
-    } finally {
-      await parser.destroy();
-    }
+    text = await extractPdfText(buffer);
   } else if (extension === "docx") {
     const result = await mammoth.extractRawText({ buffer });
     text = result.value;
@@ -56,12 +94,18 @@ export async function extractCvText(
 
   const cleaned = text
     .replace(/\u0000/g, "")
+    .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
   if (!cleaned) {
-    throw new Error("No readable text was found in the CV");
+    throw new Error(
+      extension === "pdf"
+        ? "No readable text was found in the CV. The PDF may be image-based or scanned."
+        : "No readable text was found in the CV",
+    );
   }
 
   return cleaned.slice(0, MAX_CV_TEXT);

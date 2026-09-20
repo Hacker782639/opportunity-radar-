@@ -49,7 +49,7 @@ function buildCvStoragePath(userId: string, fileName: string) {
   return `${userId}/cv/${sanitizeCvFileName(fileName)}`;
 }
 
-function isUserScopedCvPath(userId: string, storagePath: string) {
+export function isUserScopedCvPath(userId: string, storagePath: string) {
   const segments = storagePath.split("/");
 
   return (

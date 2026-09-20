@@ -7,10 +7,13 @@ import {
   ArrowRight,
   Check,
   FileText,
+  Loader2,
   Pencil,
   Sparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { Badge } from "@/components/ui/badge";
+import { EXPERIENCE_LEVELS, WORK_PREFERENCES } from "@/lib/profile/fields";
 
 type Profile = {
   full_name: string | null;
@@ -18,20 +21,146 @@ type Profile = {
   experience: string | null;
   skills: string[];
   preferred_roles: string[];
+  work_preference: string | null;
 };
 
-type Section = {
-  title: string;
-  items: [string, string][];
+type ExtractedCvProfile = {
+  fullName: string | null;
+  location: string | null;
+  experience: string | null;
+  skills: string[];
+  preferredRoles: string[];
+  workPreference: string | null;
+  education: string | null;
+  currentRole: string | null;
 };
+
+type FieldKey =
+  | "fullName"
+  | "location"
+  | "preferredRoles"
+  | "experience"
+  | "skills"
+  | "workPreference";
+
+type EditableValues = Record<FieldKey, string>;
+
+type ReviewField = {
+  key: FieldKey;
+  label: string;
+  kind: "text" | "select" | "list";
+  options?: readonly string[];
+  fallback: string;
+};
+
+type ReviewSection = {
+  title: string;
+  editable: boolean;
+  fields: ReviewField[];
+  details?: [string, string][];
+};
+
+const EMPTY_VALUES: EditableValues = {
+  fullName: "",
+  location: "",
+  preferredRoles: "",
+  experience: "",
+  skills: "",
+  workPreference: "",
+};
+
+const INPUT_CLASSNAME =
+  "h-10 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm transition placeholder:text-neutral-400 hover:border-neutral-300 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-950/10 dark:focus:border-neutral-400 dark:focus:ring-white/10 dark:border-neutral-800 dark:bg-neutral-950";
+
+const EDIT_BUTTON_CLASSNAME =
+  "inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-white";
+
+function joinList(values: string[]) {
+  return values.join(", ");
+}
+
+function splitList(value: string) {
+  const seen = new Set<string>();
+  const items: string[] = [];
+
+  for (const part of value.split(",")) {
+    const item = part.trim().replace(/\s+/g, " ");
+
+    if (!item) continue;
+
+    const key = item.toLowerCase();
+
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    items.push(item);
+  }
+
+  return items;
+}
+
+function dedupeList(...lists: string[][]) {
+  const seen = new Set<string>();
+  const items: string[] = [];
+
+  for (const list of lists) {
+    for (const value of list) {
+      const item = value.trim();
+
+      if (!item) continue;
+
+      const key = item.toLowerCase();
+
+      if (seen.has(key)) continue;
+
+      seen.add(key);
+      items.push(item);
+    }
+  }
+
+  return items;
+}
+
+function toValues(profile: Profile): EditableValues {
+  return {
+    fullName: profile.full_name ?? "",
+    location: profile.location ?? "",
+    preferredRoles: joinList(profile.preferred_roles),
+    experience: profile.experience ?? "",
+    skills: joinList(profile.skills),
+    workPreference: profile.work_preference ?? "",
+  };
+}
+
+function mergeExtracted(
+  current: EditableValues,
+  existing: Profile,
+  extracted: ExtractedCvProfile,
+): EditableValues {
+  const skills = dedupeList(existing.skills, extracted.skills);
+  const roles = dedupeList(existing.preferred_roles, extracted.preferredRoles);
+
+  return {
+    fullName: extracted.fullName ?? current.fullName,
+    location: extracted.location ?? current.location,
+    preferredRoles: roles.length ? joinList(roles) : current.preferredRoles,
+    experience: extracted.experience ?? current.experience,
+    skills: skills.length ? joinList(skills) : current.skills,
+    workPreference: extracted.workPreference ?? current.workPreference,
+  };
+}
 
 export default function CVReviewPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [fileName, setFileName] = useState("Uploaded CV");
+  const [values, setValues] = useState<EditableValues>(EMPTY_VALUES);
+  const [extracted, setExtracted] = useState<ExtractedCvProfile | null>(null);
+  const [editing, setEditing] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  const [extracting, setExtracting] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState("");
 
@@ -53,7 +182,7 @@ export default function CVReviewPage() {
         const { data, error: profileError } = await supabase
           .from("profiles")
           .select(
-            "full_name, location, experience, skills, preferred_roles, cv_file_name, cv_storage_path",
+            "full_name, location, experience, skills, preferred_roles, work_preference, cv_file_name, cv_storage_path",
           )
           .eq("id", user.id)
           .maybeSingle();
@@ -76,36 +205,73 @@ export default function CVReviewPage() {
           throw storageError;
         }
 
-        if (
-          !objects?.some((object) => object.name === objectName)
-        ) {
+        if (!objects?.some((object) => object.name === objectName)) {
           router.replace("/cv");
           return;
         }
 
         if (!active) return;
 
+        const existingProfile: Profile = {
+          full_name: data.full_name,
+          location: data.location,
+          experience: data.experience,
+          skills: data.skills ?? [],
+          preferred_roles: data.preferred_roles ?? [],
+          work_preference: data.work_preference,
+        };
+
         setFileName(data.cv_file_name);
-        setProfile(
-          data
-            ? {
-                full_name: data.full_name,
-                location: data.location,
-                experience: data.experience,
-                skills: data.skills ?? [],
-                preferred_roles: data.preferred_roles ?? [],
-              }
-            : {
-                full_name: null,
-                location: null,
-                experience: null,
-                skills: [],
-                preferred_roles: [],
-              },
-        );
+        setValues(toValues(existingProfile));
+        setLoading(false);
+        setExtracting(true);
+
+        try {
+          const response = await fetch("/api/cv/profile", { method: "POST" });
+          const payload = await response.json().catch(() => null);
+
+          if (!response.ok) {
+            throw new Error(
+              typeof payload?.error === "string"
+                ? payload.error
+                : "Unable to read your CV",
+            );
+          }
+
+          const extractedProfile = payload?.profile as
+            | ExtractedCvProfile
+            | undefined;
+
+          if (!extractedProfile) {
+            throw new Error("AI returned no profile details");
+          }
+
+          if (!active) return;
+
+          setExtracted(extractedProfile);
+          setValues((current) =>
+            mergeExtracted(current, existingProfile, extractedProfile),
+          );
+        } catch (extractError) {
+          if (!active) return;
+
+          console.error("CV profile extraction error:", extractError);
+          setError(
+            extractError instanceof Error && extractError.message
+              ? `${extractError.message}. You can still review and update your profile.`
+              : "Radar couldn't read new details from your CV right now. You can still review and update your profile.",
+          );
+        } finally {
+          if (active) {
+            setExtracting(false);
+          }
+        }
       } catch (loadError) {
         console.error(loadError);
-        setError("We couldn't load your CV. Please try again.");
+
+        if (active) {
+          setError("We couldn't load your CV. Please try again.");
+        }
       } finally {
         if (active) {
           setLoading(false);
@@ -120,48 +286,159 @@ export default function CVReviewPage() {
     };
   }, [router, supabase]);
 
-  const sections: Section[] = [
+  const fromCv: Record<FieldKey, boolean> = {
+    fullName: Boolean(extracted?.fullName),
+    location: Boolean(extracted?.location),
+    preferredRoles: Boolean(extracted?.preferredRoles.length),
+    experience: Boolean(extracted?.experience),
+    skills: Boolean(extracted?.skills.length),
+    workPreference: Boolean(extracted?.workPreference),
+  };
+
+  const sections: ReviewSection[] = [
     {
       title: "Personal information",
-      items: [
-        ["Name", profile?.full_name || "Not available"],
-        ["Location", profile?.location || "Not available"],
-        [
-          "Preferred roles",
-          profile?.preferred_roles?.length
-            ? profile.preferred_roles.join(", ")
-            : "Not added yet",
-        ],
+      editable: true,
+      fields: [
+        {
+          key: "fullName",
+          label: "Name",
+          kind: "text",
+          fallback: "Not available",
+        },
+        {
+          key: "location",
+          label: "Location",
+          kind: "text",
+          fallback: "Not available",
+        },
+        {
+          key: "preferredRoles",
+          label: "Preferred roles",
+          kind: "list",
+          fallback: "Not added yet",
+        },
+        {
+          key: "workPreference",
+          label: "Work preference",
+          kind: "select",
+          options: WORK_PREFERENCES,
+          fallback: "Not added yet",
+        },
       ],
     },
     {
       title: "Experience",
-      items: [
-        ["Experience level", profile?.experience || "Not added yet"],
+      editable: true,
+      fields: [
+        {
+          key: "experience",
+          label: "Experience level",
+          kind: "select",
+          options: EXPERIENCE_LEVELS,
+          fallback: "Not added yet",
+        },
       ],
     },
     {
       title: "Skills",
-      items: [
-        [
-          "Current skills",
-          profile?.skills?.length
-            ? profile.skills.join(", ")
-            : "No skills added yet",
-        ],
+      editable: true,
+      fields: [
+        {
+          key: "skills",
+          label: "Current skills",
+          kind: "list",
+          fallback: "No skills added yet",
+        },
       ],
     },
     {
       title: "CV extraction",
-      items: [
-        ["Education", "Not extracted yet"],
-        ["CV-specific details", "Pending analysis"],
+      editable: false,
+      fields: [],
+      details: [
+        [
+          "Education",
+          extracted ? extracted.education || "Not found in CV" : "Not available",
+        ],
+        [
+          "Most recent role",
+          extracted
+            ? extracted.currentRole || "Not found in CV"
+            : "Not available",
+        ],
       ],
     },
   ];
 
-  const confirmProfile = () => {
-    setConfirmed(true);
+  const updateField = (key: FieldKey, value: string) => {
+    setValues((current) => ({ ...current, [key]: value }));
+    setConfirmed(false);
+  };
+
+  const toggleEditing = (title: string) => {
+    setEditing((current) => ({ ...current, [title]: !current[title] }));
+  };
+
+  const confirmProfile = async () => {
+    if (saving) return;
+
+    setSaving(true);
+    setError("");
+    setConfirmed(false);
+
+    try {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        router.replace("/login");
+        return;
+      }
+
+      const fullName = values.fullName.trim();
+
+      const { data: updated, error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          full_name: fullName,
+          location: values.location.trim(),
+          experience: values.experience,
+          skills: splitList(values.skills),
+          preferred_roles: splitList(values.preferredRoles),
+          work_preference: values.workPreference,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id)
+        .select("id")
+        .maybeSingle();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      if (!updated) {
+        throw new Error("Profile update was rejected");
+      }
+
+      if (fullName) {
+        await supabase.auth.updateUser({
+          data: {
+            full_name: fullName,
+          },
+        });
+      }
+
+      setEditing({});
+      setConfirmed(true);
+    } catch (saveError) {
+      console.error(saveError);
+      setError("We couldn't save your profile. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {
@@ -203,8 +480,8 @@ export default function CVReviewPage() {
           </h1>
 
           <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-            Review your current profile information before approving any CV
-            based changes.
+            Review and edit what Radar read from your CV before it is saved to
+            your profile.
           </p>
         </div>
 
@@ -225,6 +502,13 @@ export default function CVReviewPage() {
           </span>
         </div>
 
+        {extracting && (
+          <p className="mt-3 inline-flex items-center gap-2 text-[11px] font-semibold text-neutral-500 dark:text-neutral-400">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Reading your CV...
+          </p>
+        )}
+
         {error && (
           <div
             role="alert"
@@ -243,18 +527,91 @@ export default function CVReviewPage() {
               <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
                 <h2 className="text-sm font-bold">{section.title}</h2>
 
-                <button
-                  type="button"
-                  onClick={() => router.push("/profile")}
-                  className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-white"
-                >
-                  <Pencil className="h-3 w-3" />
-                  Edit
-                </button>
+                {section.editable ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleEditing(section.title)}
+                    className={EDIT_BUTTON_CLASSNAME}
+                  >
+                    <Pencil className="h-3 w-3" />
+                    {editing[section.title] ? "Done" : "Edit"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => router.push("/profile")}
+                    className={EDIT_BUTTON_CLASSNAME}
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Edit
+                  </button>
+                )}
               </div>
 
               <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                {section.items.map(([label, value]) => (
+                {section.fields.map((field) => {
+                  const isEditing =
+                    section.editable && Boolean(editing[section.title]);
+
+                  return (
+                    <div
+                      key={field.label}
+                      className="grid gap-1 px-5 py-4 sm:grid-cols-[180px_1fr]"
+                    >
+                      <span className="inline-flex items-center gap-2 text-xs text-neutral-400">
+                        {field.label}
+
+                        {fromCv[field.key] && (
+                          <Badge
+                            variant="primary"
+                            className="px-2 py-0.5 text-[10px]"
+                          >
+                            From CV
+                          </Badge>
+                        )}
+                      </span>
+
+                      {isEditing ? (
+                        field.kind === "select" ? (
+                          <select
+                            value={values[field.key]}
+                            onChange={(event) =>
+                              updateField(field.key, event.target.value)
+                            }
+                            className={INPUT_CLASSNAME}
+                          >
+                            <option value="">Not set</option>
+
+                            {(field.options ?? []).map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            value={values[field.key]}
+                            onChange={(event) =>
+                              updateField(field.key, event.target.value)
+                            }
+                            placeholder={
+                              field.kind === "list"
+                                ? "Separate with commas"
+                                : field.label
+                            }
+                            className={INPUT_CLASSNAME}
+                          />
+                        )
+                      ) : (
+                        <span className="text-sm font-medium">
+                          {values[field.key].trim() || field.fallback}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {section.details?.map(([label, value]) => (
                   <div
                     key={label}
                     className="grid gap-1 px-5 py-4 sm:grid-cols-[180px_1fr]"
@@ -276,9 +633,8 @@ export default function CVReviewPage() {
               <h2 className="text-sm font-bold">Your approval matters</h2>
 
               <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-                CV-specific extraction will be connected to the analyzer
-                later. Nothing here is presented as extracted unless Radar
-                actually detects it.
+                Radar only proposes details it can actually read from your CV.
+                Nothing is saved to your profile until you confirm.
               </p>
             </div>
           </div>
@@ -303,11 +659,15 @@ export default function CVReviewPage() {
 
           <button
             type="button"
-            onClick={confirmProfile}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-xs font-semibold text-white transition hover:bg-violet-700"
+            onClick={() => void confirmProfile()}
+            disabled={saving || extracting}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:pointer-events-none disabled:opacity-40"
           >
-            {confirmed ? "Confirmed" : "Confirm profile"}
-            {confirmed ? (
+            {saving ? "Saving..." : confirmed ? "Confirmed" : "Confirm profile"}
+
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : confirmed ? (
               <Check className="h-3.5 w-3.5" />
             ) : (
               <ArrowRight className="h-3.5 w-3.5" />
