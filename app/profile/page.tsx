@@ -203,7 +203,7 @@ export default function ProfilePage() {
       <main className="min-h-screen bg-[#fafaf8] text-neutral-950 dark:bg-[#111110] dark:text-white">
         <div className="mx-auto max-w-[1180px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
 
-          <div className="mb-7 flex items-end justify-between gap-4">
+          <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-neutral-400">
                 Account
@@ -220,7 +220,7 @@ export default function ProfilePage() {
               type="button"
               onClick={saveProfile}
               disabled={saving || loading}
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-neutral-950 px-4 text-xs font-bold text-white transition hover:bg-neutral-800 disabled:opacity-60 dark:bg-white dark:text-neutral-950"
+              className="inline-flex h-10 w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-neutral-950 px-4 text-xs font-bold text-white transition hover:bg-neutral-800 disabled:opacity-60 dark:bg-white dark:text-neutral-950"
             >
               {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
               {saving ? "Saving..." : saved ? "Saved" : "Save changes"}
