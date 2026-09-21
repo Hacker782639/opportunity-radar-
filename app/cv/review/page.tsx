@@ -433,6 +433,7 @@ export default function CVReviewPage() {
 
       setEditing({});
       setConfirmed(true);
+      router.replace("/profile");
     } catch (saveError) {
       console.error(saveError);
       setError("We couldn't save your profile. Please try again.");
